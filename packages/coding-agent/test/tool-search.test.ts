@@ -1,9 +1,14 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import type { ToolNamespace } from "../src/core/extensions/types.ts";
+import type { ToolInfo, ToolNamespace } from "../src/core/extensions/types.ts";
 import { createCodemodeDescription } from "../src/extensions/codemode/tool.ts";
-import { Bm25Ranker, createToolSearchDocument, tokenize } from "../src/extensions/tool-search/tool.ts";
+import {
+	Bm25Ranker,
+	createToolSearchDocument,
+	searchAndLoad,
+	tokenize,
+} from "../src/extensions/tool-search/tool.ts";
 
 function tool(name: string, description: string, properties: Record<string, unknown> = {}): AgentTool {
 	return {
@@ -61,6 +66,42 @@ describe("Bm25Ranker", () => {
 		expect(new Bm25Ranker().rank("kubernetes", [document], 8)).toEqual([
 			{ name: "mcp__x__run", score: expect.any(Number) },
 		]);
+	});
+});
+
+describe("tool search", () => {
+	it("loads only the deferred tool whose name exactly matches the query", () => {
+		const candidates: ToolInfo[] = [
+			{
+				name: "run_test_ts",
+				description: "Runs TypeScript tests.",
+				parameters: Type.Object({}),
+				exposure: "deferred",
+				sourceInfo: { path: "builtin:run_test_ts", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+			{
+				name: "run_test_py",
+				description: "Runs Python tests.",
+				parameters: Type.Object({}),
+				exposure: "deferred",
+				sourceInfo: { path: "builtin:run_test_py", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+		];
+		let active: string[] = [];
+		const result = searchAndLoad(
+			{
+				getActiveTools: () => active,
+				getAllTools: () => candidates,
+				setActiveTools: (names) => {
+					active = names;
+				},
+			},
+			"run_test_ts",
+			8,
+		);
+
+		expect(active).toEqual(["run_test_ts"]);
+		expect(result).toEqual([{ name: "run_test_ts", description: "Runs TypeScript tests." }]);
 	});
 });
 

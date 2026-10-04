@@ -194,23 +194,19 @@ function isSearchable(exposure: ToolExposure): boolean {
 }
 
 /**
- * Rank the searchable tools that are not active yet and activate the matches, so the next model
- * call declares them. Activation is recorded in the transcript like any tool change.
+ * Load the searchable tool whose name exactly matches the query when it is not active yet.
+ * Activation is recorded in the transcript like any other tool change.
  */
-function searchAndLoad(
+export function searchAndLoad(
 	tools: NonNullable<ToolSearchToolOptions["tools"]>,
 	query: string,
 	limit: number,
 ): ToolSearchResultTool[] {
 	const active = tools.getActiveTools();
 	const candidates = tools.getAllTools().filter((tool) => isSearchable(tool.exposure) && !active.includes(tool.name));
-	const documents = candidates.map((tool) => createToolSearchDocument(tool, tool.namespace));
-	const matches = new Bm25Ranker().rank(query, documents, limit);
-	if (matches.length > 0) tools.setActiveTools([...active, ...matches.map((match) => match.name)]);
-	return matches.map((match) => ({
-		name: match.name,
-		description: candidates.find((tool) => tool.name === match.name)?.description ?? "",
-	}));
+	const matches = candidates.filter((tool) => tool.name === query.trim()).slice(0, limit);
+	if (matches.length > 0) tools.setActiveTools([...active, ...matches.map((tool) => tool.name)]);
+	return matches.map((tool) => ({ name: tool.name, description: tool.description }));
 }
 
 /**
