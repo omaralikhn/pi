@@ -198,13 +198,14 @@ export function hasToolRedefinitions(messages: TranscriptMessages): boolean {
 
 /** Whether tool history contains a removal or same-name redeclaration that an addition-only transport cannot replay. */
 export function hasNonAdditiveToolChanges(messages: TranscriptMessages): boolean {
-	const declared = new Set<string>();
+	const declared = new Map<string, Tool>();
 	for (const message of messages) {
 		if (!isSystemMessage(message)) continue;
 		if ((message.toolsRemoved?.length ?? 0) > 0) return true;
 		for (const tool of message.toolsAdded ?? []) {
-			if (declared.has(tool.name)) return true;
-			declared.add(tool.name);
+			const previous = declared.get(tool.name);
+			if (previous !== undefined && !declarationsEqual(previous, tool)) return true;
+			declared.set(tool.name, tool);
 		}
 	}
 	return false;

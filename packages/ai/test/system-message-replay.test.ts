@@ -133,6 +133,14 @@ describe("system message replay", () => {
 			],
 		});
 		expect(hasNonAdditiveToolChanges(additive.messages)).toBe(false);
+		const repeated = normalizeContext({
+			messages: [
+				{ role: "system", content: "", toolsAdded: [tool("a")], timestamp: 1 },
+				{ role: "system", content: "", toolsAdded: [tool("a")], timestamp: 2 },
+			],
+		});
+		expect(hasNonAdditiveToolChanges(repeated.messages)).toBe(false);
+		expect(hasToolRedefinitions(repeated.messages)).toBe(false);
 		const redeclared = normalizeContext({
 			messages: [
 				{ role: "system", content: "", toolsAdded: [tool("a")], timestamp: 1 },

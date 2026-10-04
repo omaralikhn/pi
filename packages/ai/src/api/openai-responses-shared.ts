@@ -184,7 +184,7 @@ export function convertResponsesMessages<TApi extends Api>(
 	const appendSystemToolAdditions = (message: SystemMessage, seed: string): void => {
 		const tools = transcriptTools.anchorsAdditions ? (message.toolsAdded ?? []) : [];
 		if (tools.length === 0) return;
-		if (options?.supportsAdditionalTools) {
+		if (!options?.supportsToolSearch && options?.supportsAdditionalTools) {
 			messages.push({
 				type: "additional_tools",
 				role: "developer",

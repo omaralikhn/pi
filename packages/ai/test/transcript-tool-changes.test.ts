@@ -264,7 +264,7 @@ describe("transcript system messages", () => {
 			name: "GPT-5.4",
 			api: "openai-responses",
 			provider: "openai",
-			compat: { supportsMidConvoSystemMessages: true, supportsToolSearch: true },
+			compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true, supportsToolSearch: true },
 		};
 		const payload = await capturePayload<{
 			tools?: Array<{ name: string }>;
@@ -273,6 +273,7 @@ describe("transcript system messages", () => {
 
 		expect(payload.tools?.map((value) => value.name)).toEqual(["base_tool"]);
 		expect(payload.input.map((item) => item.type)).toContain("tool_search_call");
+		expect(payload.input.map((item) => item.type)).not.toContain("additional_tools");
 		expect(
 			payload.input.find((item) => item.type === "tool_search_output")?.tools?.map((value) => value.name),
 		).toEqual(["late_tool"]);
