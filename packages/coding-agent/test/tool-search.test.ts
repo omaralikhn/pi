@@ -3,12 +3,7 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import type { ToolInfo, ToolNamespace } from "../src/core/extensions/types.ts";
 import { createCodemodeDescription } from "../src/extensions/codemode/tool.ts";
-import {
-	Bm25Ranker,
-	createToolSearchDocument,
-	searchAndLoad,
-	tokenize,
-} from "../src/extensions/tool-search/tool.ts";
+import { Bm25Ranker, createToolSearchDocument, searchAndLoad, tokenize } from "../src/extensions/tool-search/tool.ts";
 
 function tool(name: string, description: string, properties: Record<string, unknown> = {}): AgentTool {
 	return {
@@ -101,7 +96,13 @@ describe("tool search", () => {
 		);
 
 		expect(active).toEqual(["run_test_ts"]);
-		expect(result).toEqual([{ name: "run_test_ts", description: "Runs TypeScript tests." }]);
+		expect(result).toEqual([
+			{
+				name: "run_test_ts",
+				description: "Runs TypeScript tests.",
+				parameters: { type: "object", properties: {} },
+			},
+		]);
 	});
 });
 

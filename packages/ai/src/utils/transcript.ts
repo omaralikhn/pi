@@ -1,4 +1,12 @@
-import type { Context, Message, SystemMessage, Tool, ToolReference, TranscriptContext } from "../types.ts";
+import type {
+	Context,
+	Message,
+	SystemMessage,
+	Tool,
+	ToolReference,
+	ToolResultMessage,
+	TranscriptContext,
+} from "../types.ts";
 import { contentText, getSystemMessageText } from "./text.ts";
 
 export type { TranscriptContext } from "../types.ts";
@@ -43,6 +51,10 @@ function isSystemMessage(message: { role: string }): message is SystemMessage {
 	return message.role === "system";
 }
 
+function isToolResultMessage(message: { role: string }): message is ToolResultMessage {
+	return message.role === "toolResult";
+}
+
 /** Return the leading system message, if the transcript starts with one. */
 export function getInitialSystemMessage(messages: TranscriptMessages): SystemMessage | undefined {
 	const first = messages[0];
@@ -54,15 +66,47 @@ export function withoutInitialSystemMessage(messages: Message[]): Message[] {
 	return getInitialSystemMessage(messages) ? messages.slice(1) : messages;
 }
 
-/** Resolve the tools available after applying every transcript delta in order. */
-export function getCurrentTools(messages: TranscriptMessages): Tool[] {
+/** Return complete schemas recorded by a successful native deferred-tool search. */
+export function getNativeDeferredTools(message: { role: string }): Tool[] {
+	if (
+		!isToolResultMessage(message) ||
+		message.toolName !== "tool_search" ||
+		!isNativeDeferredToolDetails(message.details)
+	) {
+		return [];
+	}
+	return message.details.loadedTools;
+}
+
+/** Resolve the tools available after applying every transcript delta and native discovery in order. */
+export function getCurrentTools(messages: TranscriptMessages, includeNativeDeferredTools = true): Tool[] {
 	const tools = new Map<string, Tool>();
 	for (const message of messages) {
-		if (!isSystemMessage(message)) continue;
-		for (const tool of message.toolsRemoved ?? []) tools.delete(tool.name);
-		for (const tool of message.toolsAdded ?? []) tools.set(tool.name, tool);
+		if (isSystemMessage(message)) {
+			for (const tool of message.toolsRemoved ?? []) tools.delete(tool.name);
+			for (const tool of message.toolsAdded ?? []) tools.set(tool.name, tool);
+		}
+		if (includeNativeDeferredTools) {
+			for (const tool of getNativeDeferredTools(message)) tools.set(tool.name, tool);
+		}
 	}
 	return [...tools.values()];
+}
+
+function isNativeDeferredToolDetails(details: unknown): details is { loadedTools: Tool[] } {
+	if (!details || typeof details !== "object" || !("loadedTools" in details)) return false;
+	const loadedTools = details.loadedTools;
+	return (
+		Array.isArray(loadedTools) &&
+		loadedTools.every(
+			(tool) =>
+				tool !== null &&
+				typeof tool === "object" &&
+				typeof tool.name === "string" &&
+				typeof tool.description === "string" &&
+				"parameters" in tool,
+		)
+	);
 }
 
 /**
@@ -170,8 +214,10 @@ export function getToolStateChanges(previous: readonly Tool[], current: readonly
 export function getDeclaredTools(messages: TranscriptMessages): Tool[] {
 	const definitions = new Map<string, Tool>();
 	for (const message of messages) {
-		if (!isSystemMessage(message)) continue;
-		for (const tool of message.toolsAdded ?? []) definitions.set(tool.name, tool);
+		if (isSystemMessage(message)) {
+			for (const tool of message.toolsAdded ?? []) definitions.set(tool.name, tool);
+		}
+		for (const tool of getNativeDeferredTools(message)) definitions.set(tool.name, tool);
 	}
 	return [...definitions.values()];
 }

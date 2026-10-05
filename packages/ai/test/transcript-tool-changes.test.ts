@@ -189,7 +189,7 @@ describe("transcript system messages", () => {
 		expect(payload.messages.at(-1)?.content.map((block) => block.type)).toEqual(["text"]);
 	});
 
-	test("folds Anthropic updates into the system prompt without native support", async () => {
+	test("uses Anthropic inline tool changes without capability metadata", async () => {
 		const model: Model<"anthropic-messages"> = {
 			...modelBase,
 			id: "claude-sonnet-4-5",
@@ -204,32 +204,33 @@ describe("transcript system messages", () => {
 			messages: Array<{ role: string }>;
 		}>(model, context);
 
-		expect(payload.betas ?? []).not.toContain("inline-tools-2026-09-15");
+		expect(payload.betas).toContain("inline-tools-2026-09-15");
 		expect(payload.system?.map((block) => block.text)).toEqual([
-			"base prompt\n\nupdated guidance\n\n<rules>\nnew rules\n</rules>",
+			"base prompt\n\n<rules>\nold rules\n</rules>\n\n<docs>\nread docs\n</docs>",
 		]);
-		expect(payload.tools?.map((value) => value.name)).toEqual(["late_tool"]);
-		expect(payload.messages.map((message) => message.role)).toEqual(["user"]);
+		expect(payload.tools?.map((value) => value.name)).toEqual(["base_tool", "__pi_deferred_placeholder__"]);
+		expect(payload.messages.map((message) => message.role)).toEqual(["user", "system"]);
 	});
 
-	test("requires both Anthropic capabilities for native tool changes", async () => {
+	test("uses Anthropic inline tool changes when capability metadata is absent", async () => {
 		const model: Model<"anthropic-messages"> = {
 			...modelBase,
 			id: "claude-opus-5",
 			name: "Claude Opus 5",
 			api: "anthropic-messages",
 			provider: "anthropic",
-			compat: { supportsMidConvoToolChanges: true },
+			compat: { supportsMidConvoToolChanges: false, supportsMidConvoSystemMessages: false },
 		};
-		const payload = await capturePayload<{
-			betas?: string[];
-			tools?: Array<{ name: string }>;
-			messages: Array<{ role: string }>;
-		}>(model, context);
+		const payload = await capturePayload<AnthropicPayload>(model, context);
 
-		expect(payload.betas ?? []).not.toContain("inline-tools-2026-09-15");
-		expect(payload.tools?.map((value) => value.name)).toEqual(["late_tool"]);
-		expect(payload.messages.map((message) => message.role)).toEqual(["user"]);
+		expect(payload.betas).toContain("inline-tools-2026-09-15");
+		expect(payload.tools?.map((value) => value.name)).toEqual(["base_tool", "__pi_deferred_placeholder__"]);
+		expect(payload.messages.map((message) => message.role)).toEqual(["user", "system"]);
+		expect(payload.messages.at(-1)?.content.map((block) => block.type)).toEqual([
+			"text",
+			"tool_removal",
+			"tool_addition",
+		]);
 	});
 
 	test("anchors OpenAI additions at their developer message", async () => {
@@ -247,9 +248,10 @@ describe("transcript system messages", () => {
 		}>(model, additionContext);
 
 		expect(payload.tools?.map((value) => value.name)).toEqual(["base_tool"]);
-		expect(payload.input.find((item) => item.type === "additional_tools")?.tools?.map((value) => value.name)).toEqual(
-			["late_tool"],
-		);
+		expect(payload.input.map((item) => item.type)).toContain("tool_search_call");
+		expect(
+			payload.input.find((item) => item.type === "tool_search_output")?.tools?.map((value) => value.name),
+		).toEqual(["late_tool"]);
 		expect(
 			payload.input
 				.filter((item) => item.role === "developer" && item.type === undefined)
@@ -257,14 +259,14 @@ describe("transcript system messages", () => {
 		).toEqual(["base prompt", "updated guidance"]);
 	});
 
-	test("maps system-message additions into synthetic tool search", async () => {
+	test("maps OpenAI additions into native tool search when capability metadata is absent", async () => {
 		const model: Model<"openai-responses"> = {
 			...modelBase,
 			id: "gpt-5.4",
 			name: "GPT-5.4",
 			api: "openai-responses",
 			provider: "openai",
-			compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true, supportsToolSearch: true },
+			compat: { supportsMidConvoSystemMessages: false, supportsAdditionalTools: false, supportsToolSearch: false },
 		};
 		const payload = await capturePayload<{
 			tools?: Array<{ name: string }>;
@@ -279,14 +281,80 @@ describe("transcript system messages", () => {
 		).toEqual(["late_tool"]);
 	});
 
-	test("folds OpenAI updates into the leading developer message without native support", async () => {
+	test("replays persisted OpenAI discovery after its tool result", async () => {
+		const model: Model<"openai-responses"> = {
+			...modelBase,
+			id: "gpt-5.4",
+			name: "GPT-5.4",
+			api: "openai-responses",
+			provider: "openai",
+			compat: { supportsToolSearch: false },
+		};
+		const payload = await capturePayload<{
+			tools?: Array<{ name: string }>;
+			input: Array<{ type?: string; call_id?: string; tools?: Array<{ name: string }> }>;
+		}>(model, {
+			messages: [
+				{ role: "system", content: "base prompt", toolsAdded: [baseTool], timestamp: 0 },
+				{ role: "user", content: "find the late tool", timestamp: 1 },
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "search-1", name: "tool_search", arguments: { query: "late_tool" } }],
+					api: "openai-responses",
+					provider: "openai",
+					model: "gpt-5.4",
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: "toolUse",
+					timestamp: 2,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "search-1",
+					toolName: "tool_search",
+					content: [{ type: "text", text: "Loaded 1 tool." }],
+					details: {
+						loaded: ["late_tool"],
+						loadedTools: [
+							{
+								name: "late_tool",
+								description: "late_tool tool",
+								parameters: { type: "object", properties: {} },
+							},
+						],
+					},
+					isError: false,
+					timestamp: 3,
+				},
+			],
+		});
+
+		expect(payload.tools?.map((value) => value.name)).toEqual(["base_tool"]);
+		expect(payload.input.map((item) => item.type)).toEqual([
+			undefined,
+			undefined,
+			"function_call",
+			"function_call_output",
+			"tool_search_call",
+			"tool_search_output",
+		]);
+		expect(payload.input.at(-1)?.tools?.map((value) => value.name)).toEqual(["late_tool"]);
+	});
+
+	test("keeps OpenAI system updates in place when capability metadata is absent", async () => {
 		const model: Model<"openai-responses"> = {
 			...modelBase,
 			id: "gpt-4.1",
 			name: "GPT-4.1",
 			api: "openai-responses",
 			provider: "openai",
-			compat: { supportsAdditionalTools: true },
+			compat: { supportsAdditionalTools: false, supportsMidConvoSystemMessages: false, supportsToolSearch: false },
 		};
 		const payload = await capturePayload<{
 			tools?: Array<{ name: string }>;
@@ -294,8 +362,13 @@ describe("transcript system messages", () => {
 		}>(model, context);
 
 		expect(payload.tools?.map((value) => value.name)).toEqual(["late_tool"]);
-		expect(payload.input.map((item) => item.type ?? item.role)).toEqual(["developer", "user"]);
-		expect(payload.input[0]?.content).toBe("base prompt\n\nupdated guidance\n\n<rules>\nnew rules\n</rules>");
+		expect(payload.input.map((item) => item.type ?? item.role)).toEqual(["developer", "user", "developer"]);
+		expect(payload.input[0]?.content).toBe(
+			"base prompt\n\n<rules>\nold rules\n</rules>\n\n<docs>\nread docs\n</docs>",
+		);
+		expect(payload.input[2]?.content).toBe(
+			'updated guidance\n\nUpdated system prompt section "rules":\n\n<rules>\nnew rules\n</rules>\n\nRemoved system prompt section "docs".',
+		);
 	});
 
 	test("falls back to the complete current tool state when removals are unsupported", async () => {

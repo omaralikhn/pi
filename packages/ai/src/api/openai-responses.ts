@@ -130,7 +130,7 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 	options?: OpenAIResponsesOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
-	const normalizedContext = resolveTranscript(context, getCompat(model).supportsMidConvoSystemMessages);
+	const normalizedContext = resolveTranscript(context, true);
 
 	// Start async processing
 	(async () => {
@@ -309,15 +309,12 @@ function buildParams(
 		compat.supportsOpenAIGrammarTools,
 	),
 ) {
-	const transcriptTools = resolveTranscriptTools(
-		context.messages,
-		compat.supportsAdditionalTools || compat.supportsToolSearch,
-	);
+	const transcriptTools = resolveTranscriptTools(context.messages, true);
 	const messages = convertResponsesMessages(model, context, OPENAI_TOOL_CALL_PROVIDERS, {
 		grammarToolInputProperties,
-		supportsMidConvoSystemMessages: compat.supportsMidConvoSystemMessages,
-		supportsAdditionalTools: compat.supportsAdditionalTools,
-		supportsToolSearch: compat.supportsToolSearch,
+		supportsMidConvoSystemMessages: true,
+		supportsAdditionalTools: true,
+		supportsToolSearch: true,
 		toolOptions: {
 			supportsStrictMode: compat.supportsStrictMode,
 			supportsOpenAIGrammarTools: compat.supportsOpenAIGrammarTools,

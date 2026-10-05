@@ -107,7 +107,7 @@ export async function runAgentLoop(
 	signal: AbortSignal | undefined,
 	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
-	const initialMessages = declareToolChanges(context, prompts);
+	const initialMessages = declareToolChanges(context, prompts, config.model.api === "openai-responses");
 	const newMessages: AgentMessage[] = [...initialMessages];
 	const currentContext: AgentContext = {
 		...context,
@@ -208,7 +208,11 @@ async function runLoop(
 			}
 
 			// Process prepared and queued messages before the next assistant response.
-			for (const message of declareToolChanges(currentContext, [...preparedMessages, ...pendingMessages])) {
+			for (const message of declareToolChanges(
+				currentContext,
+				[...preparedMessages, ...pendingMessages],
+				config.model.api === "openai-responses",
+			)) {
 				await emit({ type: "message_start", message });
 				await emit({ type: "message_end", message });
 				currentContext.messages.push(message);
@@ -330,7 +334,11 @@ async function runLoop(
  * the executable set, so replay always yields exactly `context.tools`. Otherwise a new
  * system message is inserted before the first non-system pending message.
  */
-function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage[]): AgentMessage[] {
+function declareToolChanges(
+	context: AgentContext,
+	pendingMessages: AgentMessage[],
+	usesNativeDeferredTools: boolean,
+): AgentMessage[] {
 	let systemIndex = -1;
 	for (let i = pendingMessages.length - 1; i >= 0; i--) {
 		if (pendingMessages[i].role === "system") {
@@ -345,7 +353,7 @@ function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage
 			)
 		: pendingMessages;
 	const changes = getToolStateChanges(
-		getCurrentTools([...context.messages, ...baseline]),
+		getCurrentTools([...context.messages, ...baseline], usesNativeDeferredTools),
 		(context.tools ?? []).map(toToolDeclaration),
 	);
 	const unchanged = changes.toolsAdded.length === 0 && changes.toolsRemoved.length === 0;

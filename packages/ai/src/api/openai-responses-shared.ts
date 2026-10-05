@@ -35,7 +35,7 @@ import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.ts";
-import { resolveTranscript, resolveTranscriptTools } from "../utils/transcript.ts";
+import { getNativeDeferredTools, resolveTranscript, resolveTranscriptTools } from "../utils/transcript.ts";
 import {
 	appendGrammarToolInputJsonDelta,
 	type GrammarToolInputJsonBuffer,
@@ -177,14 +177,15 @@ export function convertResponsesMessages<TApi extends Api>(
 	};
 
 	const transformedMessages = transformMessages(normalizedContext.messages, model, normalizeToolCallId);
+	const usesNativeToolSearch = model.api === "openai-responses" || options?.supportsToolSearch === true;
 	const transcriptTools = resolveTranscriptTools(
 		normalizedContext.messages,
-		(options?.supportsAdditionalTools ?? false) || (options?.supportsToolSearch ?? false),
+		(options?.supportsAdditionalTools ?? false) || usesNativeToolSearch,
 	);
 	const appendSystemToolAdditions = (message: SystemMessage, seed: string): void => {
 		const tools = transcriptTools.anchorsAdditions ? (message.toolsAdded ?? []) : [];
 		if (tools.length === 0) return;
-		if (!options?.supportsToolSearch && options?.supportsAdditionalTools) {
+		if (!usesNativeToolSearch && options?.supportsAdditionalTools) {
 			messages.push({
 				type: "additional_tools",
 				role: "developer",
@@ -192,7 +193,7 @@ export function convertResponsesMessages<TApi extends Api>(
 			} satisfies ResponseInputItem);
 			return;
 		}
-		if (!options?.supportsToolSearch) return;
+		if (!usesNativeToolSearch) return;
 		const names = tools.map((tool) => tool.name);
 		const callId = `pi_tool_load_${shortHash(`${seed}:${names.join(",")}`)}`;
 		messages.push({
@@ -207,7 +208,7 @@ export function convertResponsesMessages<TApi extends Api>(
 			call_id: callId,
 			execution: "client",
 			status: "completed",
-			tools: convertResponsesTools(tools, { ...options.toolOptions, toolSearchResult: true }),
+			tools: convertResponsesTools(tools, { ...options?.toolOptions, toolSearchResult: true }),
 		} satisfies ResponseToolSearchOutputItemParam);
 	};
 	const includeInitialSystemMessage = options?.includeSystemPrompt ?? true;
@@ -345,6 +346,14 @@ export function convertResponsesMessages<TApi extends Api>(
 					call_id: callId,
 					output,
 				});
+			}
+			if (model.api === "openai-responses") {
+				const tools = getNativeDeferredTools(msg);
+				if (tools.length > 0)
+					appendSystemToolAdditions(
+						{ role: "system", content: "", toolsAdded: tools, timestamp: msg.timestamp },
+						`tool:${msg.toolCallId}`,
+					);
 			}
 		}
 		if (!isLeadingSystemMessage) msgIndex++;

@@ -574,7 +574,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 	options?: AnthropicOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
-	const normalizedContext = resolveTranscript(context, getAnthropicCompat(model).supportsMidConvoSystemMessages);
+	const normalizedContext = resolveTranscript(context, true);
 	const currentTools = getCurrentTools(normalizedContext.messages);
 
 	(async () => {
@@ -1138,8 +1138,7 @@ function buildParams(
 	// Anthropic rejects a tool list where every tool is deferred, so there must be an initial
 	// active tool to anchor the placeholder. Otherwise the current tool list is sent.
 	const initialTools = initialSystemMessage?.toolsAdded ?? [];
-	const nativeToolChanges =
-		compat.supportsMidConvoSystemMessages && compat.supportsMidConvoToolChanges && initialTools.length > 0;
+	const nativeToolChanges = initialTools.length > 0;
 	const converted = convertMessages(
 		conversationMessages,
 		isOAuthToken,

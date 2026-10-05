@@ -8,6 +8,7 @@
  * like any other tool change and survives `/tree`, resume, and fork on that branch.
  */
 
+import { type Tool, toToolDeclaration } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
 import type {
 	ExtensionAPI,
@@ -170,7 +171,7 @@ export function isToolSearchTool(tool: Pick<ToolInfo, "name" | "parameters">): b
 	return tool.name === TOOL_SEARCH_TOOL_NAME && tool.parameters === toolSearchSchema;
 }
 
-export interface ToolSearchResultTool {
+export interface ToolSearchResultTool extends Tool {
 	name: string;
 	description: string;
 }
@@ -178,6 +179,8 @@ export interface ToolSearchResultTool {
 export interface ToolSearchToolDetails {
 	/** Tools loaded by this call. */
 	loaded: string[];
+	/** Complete declarations persisted for native deferred-tool replay and session restoration. */
+	loadedTools: Tool[];
 }
 
 export interface ToolSearchToolOptions {
@@ -206,7 +209,7 @@ export function searchAndLoad(
 	const candidates = tools.getAllTools().filter((tool) => isSearchable(tool.exposure) && !active.includes(tool.name));
 	const matches = candidates.filter((tool) => tool.name === query.trim()).slice(0, limit);
 	if (matches.length > 0) tools.setActiveTools([...active, ...matches.map((tool) => tool.name)]);
-	return matches.map((tool) => ({ name: tool.name, description: tool.description }));
+	return matches.map((tool) => toToolDeclaration(tool));
 }
 
 /**
@@ -237,7 +240,13 @@ export function createToolSearchToolDefinition(
 					: `Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"}. They are available from your next call:\n${tools
 							.map((tool) => `- ${tool.name}: ${tool.description.trim().split(/\r?\n/)[0]}`)
 							.join("\n")}`;
-			return { content: [{ type: "text", text }], details: { loaded: tools.map((tool) => tool.name) } };
+			return {
+				content: [{ type: "text", text }],
+				details: {
+					loaded: tools.map((tool) => tool.name),
+					loadedTools: tools.map((tool) => toToolDeclaration(tool)),
+				},
+			};
 		},
 	};
 }
