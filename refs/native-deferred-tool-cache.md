@@ -58,14 +58,57 @@ The behavior is scoped by `model.api`, not a provider or model name. This preven
 | OpenAI native replay | `packages/ai/src/api/openai-responses-shared.ts` |
 | OpenAI API policy | `packages/ai/src/api/openai-responses.ts` |
 | Anthropic inline policy | `packages/ai/src/api/anthropic-messages.ts` |
+| Resume loadout restoration | `packages/coding-agent/src/core/sdk.ts`, `packages/coding-agent/src/core/agent-session.ts` |
 
 ## Verification
 
 * A native OpenAI tool-search result persists the full loaded schema without synthetic tool-state messages.
 * OpenAI top-level `tools` contains only initial schemas, while discovered schemas appear in ordered native search items.
-* Resuming restores callable schemas and replays unchanged discovery history.
+* Resuming restores discovered schemas into the executable coding-agent loadout before the first `declareToolChanges` comparison.
+* Resuming adds no restart-only `toolsAdded` or `toolsRemoved` messages.
 * Anthropic keeps initial tools plus the deferred placeholder and replays later schemas only as ordered inline changes.
 * A placeholder-only Anthropic request is never sent.
 * A non-OpenAI, non-Anthropic API retains its normal capability-based fallback.
 
 Implemented in `ea7900ad3` on branch `toolcache`.
+
+## Installed-build requirement
+
+The global npm installation consumes `packages/coding-agent/dist`, not TypeScript source. After changing deferred-tool behavior, always rebuild before replacing the global package:
+
+```sh
+cd ~/pi
+npm run build:offline
+npm uninstall -g @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts ~/pi/packages/coding-agent
+/opt/homebrew/bin/pi --version
+```
+
+A same-version `npm install -g` may report `up to date` and retain stale build output. Uninstall first so the rebuilt bundle is copied.
+
+## Live confirmation
+
+Use isolated session directories and an exact deferred-tool name such as `ship`:
+
+```sh
+session_dir="$TMPDIR/pi-deferred-openai"
+mkdir -p "$session_dir"
+pi --provider openai --model gpt-5.4 --session-dir "$session_dir" \
+  -p 'Use tool_search with the exact query ship. Do not invoke ship.'
+
+session_dir="$TMPDIR/pi-deferred-anthropic"
+mkdir -p "$session_dir"
+pi --provider anthropic --model claude-sonnet-5-5 --session-dir "$session_dir" \
+  -p 'Use tool_search with the exact query ship. Do not invoke ship.'
+```
+
+Confirm each session JSONL has a successful `tool_search` result whose `details.loadedTools` entry contains the complete `name`, `description`, and `parameters` schema. Then resume the same session with `pi --session <session.jsonl> -p '<follow-up>'` and inspect the resulting JSONL for `toolsAdded`, `toolsRemoved`, `tool_search_call`, `tool_search_output`, `tool_addition`, `tool_removal`, `cacheRead`, and `cacheWrite`.
+
+## Latest verification
+
+Pi 2.0.0 was rebuilt from this checkout, replaced with a clean global npm installation, and tested with fresh then resumed isolated sessions:
+
+* **OpenAI Responses:** [`2026-10-05T01-50-12-896Z_01a109c1-1ba0-74ac-aa4a-d7438043f745.jsonl`](/var/folders/_t/376bsmqx6gjdtm8pntgq6_l00000gn/T/pi-deferred-openai-final.DBmfkx/2026-10-05T01-50-12-896Z_01a109c1-1ba0-74ac-aa4a-d7438043f745.jsonl) persisted the full `ship` schema. Resume created no tool-state messages, retained `ship`, read 7,680 cached tokens, and wrote no cache tokens.
+* **Anthropic Messages:** [`2026-10-05T01-50-25-128Z_01a109c1-4b67-732c-958d-ddf9c9fb51bb.jsonl`](/var/folders/_t/376bsmqx6gjdtm8pntgq6_l00000gn/T/pi-deferred-anthropic-final.kN32h5/2026-10-05T01-50-25-128Z_01a109c1-4b67-732c-958d-ddf9c9fb51bb.jsonl) persisted the full `ship` schema. Resume created no tool-state messages, retained `ship`, read 21,351 cached tokens, and wrote a 99-token suffix for the new follow-up.
+
+The coding-agent regression test restores a persisted native search result, executes the restored deferred tool, and proves the resumed Anthropic transcript gains neither a removal nor an addition. Adapter tests cover OpenAI native replay ordering, OpenAI synthetic-state suppression, and Anthropic ordered inline changes.
