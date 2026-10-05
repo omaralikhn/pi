@@ -265,9 +265,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
-	const initialActiveToolNames = (
-		options.tools ?? (options.noTools ? [] : (configuredDefaultToolNames ?? DEFAULT_TOOL_NAMES))
-	).filter((name) => !excludedToolNameSet?.has(name));
+	const initialActiveToolNames =
+		hasExistingSession &&
+		options.tools === undefined &&
+		options.noTools === undefined &&
+		options.excludeTools === undefined
+			? undefined
+			: (options.tools ?? (options.noTools ? [] : (configuredDefaultToolNames ?? DEFAULT_TOOL_NAMES))).filter(
+					(name) => !excludedToolNameSet?.has(name),
+				);
 
 	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
 	const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {

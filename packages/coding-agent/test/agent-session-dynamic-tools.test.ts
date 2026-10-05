@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import { getModel, type SystemMessage, type ToolResultMessage } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
@@ -92,6 +92,78 @@ describe("AgentSession dynamic tool registration", () => {
 		expect(optedOutEnv).not.toHaveProperty("PI_PROVIDER");
 		expect(optedOutEnv).not.toHaveProperty("PI_MODEL");
 		expect(optedOutEnv).not.toHaveProperty("PI_REASONING_LEVEL");
+
+		session.dispose();
+	});
+
+	it("restores a deferred tool discovered in a persisted native transcript", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const shipTool = {
+			name: "ship",
+			description: "Ship staged changes.",
+			parameters: { type: "object", properties: {} },
+		};
+		sessionManager.appendMessage({
+			role: "system",
+			content: "",
+			toolsAdded: [shipTool],
+			timestamp: 0,
+		});
+		const searchResult: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: "search-1",
+			toolName: "tool_search",
+			content: [{ type: "text", text: "Loaded ship." }],
+			details: { loaded: ["ship"], loadedTools: [shipTool] },
+			isError: false,
+			timestamp: 1,
+		};
+		sessionManager.appendMessage(searchResult);
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			extensionFactories: [
+				(pi) => {
+					pi.registerTool({
+						...shipTool,
+						label: "Ship",
+						exposure: "deferred",
+						promptSnippet: "Ship staged changes.",
+						execute: async () => ({ content: [{ type: "text", text: "shipped" }], details: {} }),
+					});
+				},
+			],
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+		});
+		session.agent.streamFunction = async () => {
+			throw new Error("stop");
+		};
+
+		expect(session.getActiveToolNames()).toContain("ship");
+		expect(await session.agent.state.tools.find((tool) => tool.name === "ship")!.execute("ship-1", {})).toEqual({
+			content: [{ type: "text", text: "shipped" }],
+			details: {},
+		});
+		await session.prompt("Continue with the restored tool.");
+		expect(
+			session.messages
+				.filter(
+					(message): message is SystemMessage =>
+						message.role === "system" && (message.toolsAdded !== undefined || message.toolsRemoved !== undefined),
+				)
+				.map((message) => ({ toolsAdded: message.toolsAdded, toolsRemoved: message.toolsRemoved })),
+		).toEqual([{ toolsAdded: [shipTool], toolsRemoved: undefined }]);
 
 		session.dispose();
 	});
