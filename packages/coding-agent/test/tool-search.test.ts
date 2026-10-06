@@ -92,7 +92,6 @@ describe("tool search", () => {
 				},
 			},
 			"run_test_ts",
-			8,
 		);
 
 		expect(active).toEqual(["run_test_ts"]);
