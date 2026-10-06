@@ -158,10 +158,7 @@ export class Bm25Ranker implements ToolRanker {
 }
 
 export const toolSearchSchema = Type.Object({
-	query: Type.String({ description: "Search query for deferred tools." }),
-	limit: Type.Optional(
-		Type.Number({ description: `Maximum number of tools to return. Defaults to ${DEFAULT_TOOL_SEARCH_LIMIT}.` }),
-	),
+	query: Type.String({ description: "Exact name of the deferred tool to load." }),
 });
 
 export type ToolSearchInput = Static<typeof toolSearchSchema>;
@@ -197,26 +194,26 @@ function isSearchable(exposure: ToolExposure): boolean {
 }
 
 /**
- * Load the searchable tool whose name exactly matches the query when it is not active yet.
+ * Load the one searchable tool whose name exactly matches the query when it is not active yet.
  * Activation is recorded in the transcript like any other tool change.
  */
 export function searchAndLoad(
 	tools: NonNullable<ToolSearchToolOptions["tools"]>,
 	query: string,
-	limit: number,
 ): ToolSearchResultTool[] {
 	const active = tools.getActiveTools();
 	const candidates = tools.getAllTools().filter((tool) => isSearchable(tool.exposure) && !active.includes(tool.name));
-	const matches = candidates.filter((tool) => tool.name === query.trim()).slice(0, limit);
-	if (matches.length > 0) tools.setActiveTools([...active, ...matches.map((tool) => tool.name)]);
-	return matches.map((tool) => toToolDeclaration(tool));
+	const match = candidates.find((tool) => tool.name === query.trim());
+	if (!match) return [];
+	tools.setActiveTools([...active, match.name]);
+	return [toToolDeclaration(match)];
 }
 
 /**
  * The `tool_search` description. It does not list the searchable tools or their namespaces, so it
  * stays the same while tools are registered, for example when MCP servers connect.
  */
-export const TOOL_SEARCH_DESCRIPTION = `# Tool discovery\n\nSearches over deferred tool metadata with BM25 and exposes matching tools for the next model call.\n\nSome of the tools, such as tools of MCP servers, may not have been provided to you upfront, and you should use this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) to search for the required tools. For MCP tool discovery, always use \`${TOOL_SEARCH_TOOL_NAME}\`.`;
+export const TOOL_SEARCH_DESCRIPTION = `# Tool discovery\n\nLoads one deferred tool by its exact name and declares it to you from the next model call, with its full schema.\n\nSome of the tools, such as tools of MCP servers, may not have been provided to you upfront. Use this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) with the exact tool name to load the one you need. For MCP tools, always use \`${TOOL_SEARCH_TOOL_NAME}\`.`;
 
 export function createToolSearchToolDefinition(
 	options: ToolSearchToolOptions = {},
@@ -229,17 +226,13 @@ export function createToolSearchToolDefinition(
 		parameters: toolSearchSchema,
 		// Searching is not something scripts need; it changes what the model sees.
 		exposure: "model-only",
-		async execute(_toolCallId, { query, limit }) {
+		async execute(_toolCallId, { query }) {
 			if (query.trim() === "") throw new Error("query must not be empty");
-			const max = limit ?? DEFAULT_TOOL_SEARCH_LIMIT;
-			if (!Number.isInteger(max) || max <= 0) throw new Error("limit must be a positive integer");
-			const tools = options.tools ? searchAndLoad(options.tools, query, max) : [];
+			const tools = options.tools ? searchAndLoad(options.tools, query) : [];
 			const text =
 				tools.length === 0
 					? "No matching tools found."
-					: `Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"}. They are available from your next call:\n${tools
-							.map((tool) => `- ${tool.name}: ${tool.description.trim().split(/\r?\n/)[0]}`)
-							.join("\n")}`;
+					: `Loaded ${tools[0].name}. It is available from your next call.`;
 			return {
 				content: [{ type: "text", text }],
 				details: {
