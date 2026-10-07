@@ -7,11 +7,21 @@
  */
 
 import type { ExtensionFactory } from "../../core/extensions/types.ts";
-import { createToolSearchToolDefinition } from "./tool.ts";
+import { createToolSearchDescription, createToolSearchToolDefinition, TOOL_SEARCH_DESCRIPTION } from "./tool.ts";
 
 export function createToolSearchExtension(): ExtensionFactory {
 	return (pi) => {
-		pi.registerTool({ ...createToolSearchToolDefinition({ tools: pi }), defaultActive: false });
+		let description = TOOL_SEARCH_DESCRIPTION;
+		const registerTool = () => {
+			pi.registerTool({ ...createToolSearchToolDefinition({ tools: pi, description }), defaultActive: false });
+		};
+		registerTool();
+		pi.on("before_agent_start", () => {
+			const nextDescription = createToolSearchDescription(pi.getAllTools());
+			if (nextDescription === description) return;
+			description = nextDescription;
+			registerTool();
+		});
 	};
 }
 
