@@ -3,7 +3,14 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import type { ToolInfo, ToolNamespace } from "../src/core/extensions/types.ts";
 import { createCodemodeDescription } from "../src/extensions/codemode/tool.ts";
-import { Bm25Ranker, createToolSearchDocument, searchAndLoad, tokenize } from "../src/extensions/tool-search/tool.ts";
+import {
+	Bm25Ranker,
+	createToolSearchDescription,
+	createToolSearchDocument,
+	createToolSearchToolDefinition,
+	searchAndLoad,
+	tokenize,
+} from "../src/extensions/tool-search/tool.ts";
 
 function tool(name: string, description: string, properties: Record<string, unknown> = {}): AgentTool {
 	return {
@@ -65,6 +72,59 @@ describe("Bm25Ranker", () => {
 });
 
 describe("tool search", () => {
+	it("lists every deferred tool without changing when one becomes active", () => {
+		const candidates: ToolInfo[] = [
+			{
+				name: "run_test_ts",
+				description: "Runs TypeScript tests.",
+				parameters: Type.Object({}),
+				exposure: "deferred",
+				sourceInfo: { path: "builtin:run_test_ts", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+			{
+				name: "run_test_py",
+				description: "Runs Python tests.",
+				parameters: Type.Object({}),
+				exposure: "deferred",
+				sourceInfo: { path: "builtin:run_test_py", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+			{
+				name: "read",
+				description: "Reads files.",
+				parameters: Type.Object({}),
+				exposure: "direct",
+				sourceInfo: { path: "builtin:read", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+		];
+		let active: string[] = [];
+		const definition = createToolSearchToolDefinition({
+			tools: {
+				getActiveTools: () => active,
+				getAllTools: () => candidates,
+				setActiveTools: (names) => {
+					active = names;
+				},
+			},
+		});
+
+		const description = `# Tool discovery
+
+Loads one deferred tool by its exact name and declares it to you from the next model call, with its full schema.
+
+## Deferred tools
+
+- \`run_test_py\`
+- \`run_test_ts\`
+
+Use this tool (\`tool_search\`) with the exact name of a deferred tool.`;
+		expect(definition.description).toBe(description);
+		expect(createToolSearchDescription([...candidates].reverse())).toBe(description);
+		active = ["run_test_ts"];
+		expect(definition.description).toContain("- `run_test_ts`");
+		expect(definition.description).toContain("- `run_test_py`");
+		expect(definition.description).not.toContain("- `read`");
+	});
+
 	it("loads only the deferred tool whose name exactly matches the query", () => {
 		const candidates: ToolInfo[] = [
 			{

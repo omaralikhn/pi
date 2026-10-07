@@ -11,7 +11,7 @@ import type { McpExposure, McpServerEntry } from "../../src/extensions/mcp/confi
 import { createMcpExtension, MCP_SERVERS_SECTION } from "../../src/extensions/mcp/index.ts";
 import { createMcpToolName } from "../../src/extensions/mcp/tools.ts";
 import { createToolSearchExtension } from "../../src/extensions/tool-search/index.ts";
-import { TOOL_SEARCH_DESCRIPTION } from "../../src/extensions/tool-search/tool.ts";
+import { createToolSearchDescription } from "../../src/extensions/tool-search/tool.ts";
 import { createTestExtensionsResult, createTestResourceLoader } from "../utilities.ts";
 import {
 	createHarness,
@@ -476,7 +476,7 @@ return { docs, sameForAliases: aliases.every((alias) => JSON.stringify(alias) ==
 		const description = (name: string) =>
 			harness.session.agent.state.tools.find((tool) => tool.name === name)?.description ?? "";
 		expect(description("codemode")).not.toContain("mcp__docs");
-		expect(description("tool_search")).toBe(TOOL_SEARCH_DESCRIPTION);
+		expect(description("tool_search")).toBe(createToolSearchDescription(harness.session.getAllTools()));
 		for (const name of ["codemode", "tool_search"]) expect(description(name)).not.toContain("Always search");
 		expect(JSON.parse(getMessageText(toolResult(harness, "codemode")).split("\n").at(-1) ?? "")).toEqual({
 			docs: {
@@ -833,9 +833,8 @@ return { docs, sameForAliases: aliases.every((alias) => JSON.stringify(alias) ==
 		await harness.session.prompt("find a docs tool");
 
 		expect(harness.session.getActiveToolNames()).toEqual(["tool_search", searchName]);
-		// The description does not depend on the connected servers.
 		const toolSearch = harness.session.agent.state.tools.find((tool) => tool.name === "tool_search");
-		expect(toolSearch?.description).toBe(TOOL_SEARCH_DESCRIPTION);
+		expect(toolSearch?.description).toBe(createToolSearchDescription(harness.session.getAllTools()));
 
 		const search = toolResult(harness, "tool_search");
 		expect(getMessageText(search)).toBe(

@@ -21,7 +21,7 @@ The model needs the full schema of a deferred tool before it can call it, and th
 * **Match** is the first searchable (`codemode` or `deferred` exposure) inactive tool whose name equals the trimmed query, so at most one tool loads.
 * **Result text** is `Loaded <name>. It is available from your next call.` or `No matching tools found.` and carries no tool description.
 * **Details** keep `loaded` and `loadedTools`, because native deferred-tool replay restores schemas from them (see `native-deferred-tool-cache.md`).
-* **Description** tells the model to pass the exact tool name and does not mention BM25 or listing.
+* **Description** lists every registered deferred tool by exact name and is refreshed only when the registry changes, never when a tool loads.
 
 ## Source ownership
 
