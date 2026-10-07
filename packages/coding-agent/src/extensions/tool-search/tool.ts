@@ -186,6 +186,7 @@ export interface ToolSearchToolOptions {
 	 * activates the matches. Without it, the tool finds nothing. An `ExtensionAPI` fits.
 	 */
 	tools?: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools">;
+	description?: string;
 }
 
 /** Whether `tool_search` can load a tool with this exposure. */
@@ -209,11 +210,16 @@ export function searchAndLoad(
 	return [toToolDeclaration(match)];
 }
 
-/**
- * The `tool_search` description. It does not list the searchable tools or their namespaces, so it
- * stays the same while tools are registered, for example when MCP servers connect.
- */
-export const TOOL_SEARCH_DESCRIPTION = `# Tool discovery\n\nLoads one deferred tool by its exact name and declares it to you from the next model call, with its full schema.\n\nSome of the tools, such as tools of MCP servers, may not have been provided to you upfront. Use this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) with the exact tool name to load the one you need. For MCP tools, always use \`${TOOL_SEARCH_TOOL_NAME}\`.`;
+export function createToolSearchDescription(tools: readonly Pick<ToolInfo, "name" | "exposure">[]): string {
+	const deferredTools = tools
+		.filter((tool) => tool.exposure === "deferred")
+		.map((tool) => tool.name)
+		.sort()
+		.map((name) => `- \`${name}\``);
+	return `# Tool discovery\n\nLoads one deferred tool by its exact name and declares it to you from the next model call, with its full schema.\n\n## Deferred tools\n\n${deferredTools.join("\n") || "- None registered."}\n\nUse this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) with the exact name of a deferred tool.`;
+}
+
+export const TOOL_SEARCH_DESCRIPTION = createToolSearchDescription([]);
 
 export function createToolSearchToolDefinition(
 	options: ToolSearchToolOptions = {},
@@ -221,7 +227,7 @@ export function createToolSearchToolDefinition(
 	return {
 		name: TOOL_SEARCH_TOOL_NAME,
 		label: TOOL_SEARCH_TOOL_NAME,
-		description: TOOL_SEARCH_DESCRIPTION,
+		description: options.description ?? createToolSearchDescription(options.tools?.getAllTools() ?? []),
 		promptSnippet: "Search for tools that are not loaded yet and load the matches",
 		parameters: toolSearchSchema,
 		// Searching is not something scripts need; it changes what the model sees.
