@@ -120,7 +120,7 @@ describe("experimental durable server composition", () => {
 
 	test("preserves an existing Session model when the server default changes", async () => {
 		await writeFile(
-			join(agentDir, "settings.json"),
+			join(agentDir, "model-settings.json"),
 			JSON.stringify({ defaultProvider: "anthropic", defaultModel: "claude-opus-4-6" }),
 		);
 		const directory = await mkdtemp(join("/tmp", "pes-"));

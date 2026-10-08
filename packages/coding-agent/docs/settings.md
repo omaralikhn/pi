@@ -1,10 +1,12 @@
 # Settings Reference
 
-This reference lists user-configurable settings, their types, defaults, and purposes. Project settings override agent-directory settings. Resource lists are combined. See [Configuration](configuration.md) for file locations and trust behavior.
+This reference lists user-configurable settings, their types, defaults, and purposes. Project settings override agent-directory settings except model-and-thinking preferences, which Pi reads only from the agent directory's `model-settings.json`. Resource lists are combined. See [Configuration](configuration.md) for file locations and trust behavior.
 
 ## Model and thinking
 
 <a id="model-cycling"></a>
+
+Store every setting in this section in `<agent-dir>/model-settings.json`, which defaults to `~/.pi/agent/model-settings.json`. Pi uses built-in defaults when the file or a setting is absent. Model-and-thinking values in user or project `settings.json` files are ignored. Run `/reload` after editing the file manually. Pi reports malformed `model-settings.json` files through its configuration-error surface and retains the last valid values on reload.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
@@ -16,7 +18,7 @@ This reference lists user-configurable settings, their types, defaults, and purp
 | `enabledModels` | `string[]` | All available models | Model patterns used for startup selection and model cycling. Uses the same format as `--models`. |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in the transcript. |
 | `showCacheMissNotices` | boolean | `false` | Show notices for significant cache misses, successful cache warming, compaction usage, and provider recovery. |
-| `cacheWarming` | `"off" \| "streaming" \| "idle"` | `"streaming"` | Keep eligible provider prompt caches warm during active runs or, with `"idle"`, between runs. Global setting only. |
+| `cacheWarming` | `"off" \| "streaming" \| "idle"` | `"streaming"` | Keep eligible provider prompt caches warm during active runs or, with `"idle"`, between runs. User-level only. |
 
 Cache warming runs only when the model declares a cache lifetime and Pi estimates at least $0.05 in avoided cache-miss cost. Refresh usage counts toward session totals but does not enter model context. `/session` shows the next decision; extensions can override it with `cache_warming_decision`. See [Prompt Cache Lifetimes](models.md#prompt-cache-lifetimes).
 
