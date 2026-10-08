@@ -16,7 +16,7 @@ tags:
 
 ## Why
 
-Pi users can change default models and thinking behavior without mixing those preferences with resources, UI configuration, or trusted project settings.
+Pi users can keep personal model and thinking preferences in a git-ignored `model-settings.json` file without mixing them into versioned agent configuration, resources, UI configuration, or trusted project settings.
 
 ## State
 
