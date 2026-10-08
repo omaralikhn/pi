@@ -34,6 +34,10 @@ describe("regression #3616: in-memory settings survive reload", () => {
 		expect(settingsManager.getImageAutoResize()).toBe(false);
 		expect(settingsManager.getCompactionEnabled()).toBe(false);
 		expect(settingsManager.getGlobalSettings()).toEqual({
+			images: { autoResize: false },
+			compaction: { enabled: false },
+		});
+		expect(settingsManager.getSettings()).toEqual({
 			defaultThinkingLevel: "high",
 			images: { autoResize: false },
 			compaction: { enabled: false },

@@ -17,7 +17,7 @@ Without a build, preload the source resolver so the workspace packages load from
 node --import ./packages/coding-agent/src/experimental/source-resolver.ts packages/coding-agent/src/experimental/vacation/main.ts
 ```
 
-A new session starts with pi's default model and thinking level from `settings.json`. `--continue` opens the newest
+A new session starts with pi's default model and thinking level from `model-settings.json`. `--continue` opens the newest
 session for the current directory. Sessions live under
 `~/.pi/agent/experimental/vacation-sessions/<cwd-hash>/<session>/session.sqlite`. Log in with pi itself; credentials are
 shared.

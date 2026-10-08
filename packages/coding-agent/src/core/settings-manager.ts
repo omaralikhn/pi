@@ -188,6 +188,39 @@ export interface Settings {
 	fullscreenWheelScrollLines?: WheelScrollLines; // default: "auto"; lines per wheel event, 1-100
 }
 
+const MODEL_SETTINGS_FIELDS = [
+	"defaultProvider",
+	"defaultModel",
+	"defaultThinkingLevel",
+	"modelThinkingLevels",
+	"thinkingBudgets",
+	"enabledModels",
+	"hideThinkingBlock",
+	"showCacheMissNotices",
+	"cacheWarming",
+] as const satisfies readonly (keyof Settings)[];
+
+type ModelSettings = Pick<Settings, (typeof MODEL_SETTINGS_FIELDS)[number]>;
+
+function extractModelSettings(settings: Settings): ModelSettings {
+	const modelSettings: Partial<Settings> = {};
+	for (const field of MODEL_SETTINGS_FIELDS) {
+		const value = settings[field];
+		if (value !== undefined) {
+			Object.assign(modelSettings, { [field]: value });
+		}
+	}
+	return modelSettings;
+}
+
+function removeModelSettings(settings: Settings): Settings {
+	const generalSettings = { ...settings };
+	for (const field of MODEL_SETTINGS_FIELDS) {
+		delete generalSettings[field];
+	}
+	return generalSettings;
+}
+
 function isMergeableObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -264,7 +297,7 @@ function parseTimeoutSetting(value: unknown, settingName: string): number | unde
 	return undefined;
 }
 
-export type SettingsScope = "global" | "project";
+export type SettingsScope = "global" | "model" | "project";
 
 export interface SettingsManagerCreateOptions {
 	projectTrusted?: boolean;
@@ -292,12 +325,14 @@ function toSettingsError(scope: SettingsScope, error: unknown, path?: string): S
 
 export class FileSettingsStorage implements SettingsStorage {
 	private globalSettingsPath: string;
+	private modelSettingsPath: string;
 	private projectSettingsPath: string;
 
 	constructor(cwd: string, agentDir: string) {
 		const resolvedCwd = resolvePath(cwd);
 		const resolvedAgentDir = resolvePath(agentDir);
 		this.globalSettingsPath = join(resolvedAgentDir, "settings.json");
+		this.modelSettingsPath = join(resolvedAgentDir, "model-settings.json");
 		this.projectSettingsPath = join(resolvedCwd, CONFIG_DIR_NAME, "settings.json");
 	}
 
@@ -329,7 +364,12 @@ export class FileSettingsStorage implements SettingsStorage {
 	}
 
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void {
-		const path = scope === "global" ? this.globalSettingsPath : this.projectSettingsPath;
+		const path =
+			scope === "global"
+				? this.globalSettingsPath
+				: scope === "model"
+					? this.modelSettingsPath
+					: this.projectSettingsPath;
 		const dir = dirname(path);
 
 		let release: (() => void) | undefined;
@@ -361,14 +401,17 @@ export class FileSettingsStorage implements SettingsStorage {
 
 export class InMemorySettingsStorage implements SettingsStorage {
 	private global: string | undefined;
+	private model: string | undefined;
 	private project: string | undefined;
 
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void {
-		const current = scope === "global" ? this.global : this.project;
+		const current = scope === "global" ? this.global : scope === "model" ? this.model : this.project;
 		const next = fn(current);
 		if (next !== undefined) {
 			if (scope === "global") {
 				this.global = next;
+			} else if (scope === "model") {
+				this.model = next;
 			} else {
 				this.project = next;
 			}
@@ -379,14 +422,17 @@ export class InMemorySettingsStorage implements SettingsStorage {
 export class SettingsManager {
 	private storage: SettingsStorage;
 	private globalSettings: Settings;
+	private modelSettings: ModelSettings;
 	private projectSettings: Settings;
 	private settings: Settings;
 	private projectTrusted: boolean;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
 	private modifiedNestedFields = new Map<keyof Settings, Set<string>>(); // Track global nested field modifications
+	private modifiedModelFields = new Set<keyof ModelSettings>(); // Track model fields modified during session
 	private modifiedProjectFields = new Set<keyof Settings>(); // Track project fields modified during session
 	private modifiedProjectNestedFields = new Map<keyof Settings, Set<string>>(); // Track project nested field modifications
 	private globalSettingsLoadError: Error | null = null; // Track if global settings file had parse errors
+	private modelSettingsLoadError: Error | null = null; // Track if model settings file had parse errors
 	private projectSettingsLoadError: Error | null = null; // Track if project settings file had parse errors
 	private writeQueue: Promise<void> = Promise.resolve();
 	private errors: SettingsError[];
@@ -395,8 +441,10 @@ export class SettingsManager {
 	private constructor(
 		storage: SettingsStorage,
 		initialGlobal: Settings,
+		initialModel: ModelSettings,
 		initialProject: Settings,
 		globalLoadError: Error | null = null,
+		modelLoadError: Error | null = null,
 		projectLoadError: Error | null = null,
 		initialErrors: SettingsError[] = [],
 		projectTrusted = true,
@@ -404,13 +452,18 @@ export class SettingsManager {
 	) {
 		this.storage = storage;
 		this.globalSettings = initialGlobal;
+		this.modelSettings = initialModel;
 		this.projectSettings = initialProject;
 		this.projectTrusted = projectTrusted;
 		this.globalSettingsLoadError = globalLoadError;
+		this.modelSettingsLoadError = modelLoadError;
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
 		this.settingsPaths = settingsPaths;
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = deepMergeSettings(
+			deepMergeSettings(this.globalSettings, this.projectSettings),
+			this.modelSettings,
+		);
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -424,6 +477,7 @@ export class SettingsManager {
 		const storage = new FileSettingsStorage(resolvedCwd, resolvedAgentDir);
 		return SettingsManager.fromStorageWithPaths(storage, options, {
 			global: join(resolvedAgentDir, "settings.json"),
+			model: join(resolvedAgentDir, "model-settings.json"),
 			project: join(resolvedCwd, CONFIG_DIR_NAME, "settings.json"),
 		});
 	}
@@ -441,10 +495,14 @@ export class SettingsManager {
 	): SettingsManager {
 		const projectTrusted = options.projectTrusted ?? true;
 		const globalLoad = SettingsManager.tryLoadFromStorage(storage, "global");
+		const modelLoad = SettingsManager.tryLoadFromStorage(storage, "model");
 		const projectLoad = SettingsManager.tryLoadFromStorage(storage, "project", projectTrusted);
 		const initialErrors: SettingsError[] = [];
 		if (globalLoad.error) {
 			initialErrors.push(toSettingsError("global", globalLoad.error, settingsPaths.global));
+		}
+		if (modelLoad.error) {
+			initialErrors.push(toSettingsError("model", modelLoad.error, settingsPaths.model));
 		}
 		if (projectLoad.error) {
 			initialErrors.push(toSettingsError("project", projectLoad.error, settingsPaths.project));
@@ -452,9 +510,11 @@ export class SettingsManager {
 
 		return new SettingsManager(
 			storage,
-			globalLoad.settings,
-			projectLoad.settings,
+			removeModelSettings(globalLoad.settings),
+			extractModelSettings(modelLoad.settings),
+			removeModelSettings(projectLoad.settings),
 			globalLoad.error,
+			modelLoad.error,
 			projectLoad.error,
 			initialErrors,
 			projectTrusted,
@@ -466,7 +526,8 @@ export class SettingsManager {
 	static inMemory(settings: Partial<Settings> = {}, options: SettingsManagerCreateOptions = {}): SettingsManager {
 		const storage = new InMemorySettingsStorage();
 		const initialSettings = SettingsManager.migrateSettings(structuredClone(settings) as Record<string, unknown>);
-		storage.withLock("global", () => JSON.stringify(initialSettings, null, 2));
+		storage.withLock("global", () => JSON.stringify(removeModelSettings(initialSettings), null, 2));
+		storage.withLock("model", () => JSON.stringify(extractModelSettings(initialSettings), null, 2));
 		return SettingsManager.fromStorage(storage, options);
 	}
 
@@ -591,50 +652,67 @@ export class SettingsManager {
 		if (!trusted) {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
-			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+			this.updateSettings();
 			return;
 		}
 
 		const projectLoad = SettingsManager.tryLoadFromStorage(this.storage, "project", trusted);
-		this.projectSettings = projectLoad.settings;
+		this.projectSettings = removeModelSettings(projectLoad.settings);
 		this.projectSettingsLoadError = projectLoad.error;
 		if (projectLoad.error) {
 			this.recordError("project", projectLoad.error);
 		}
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings();
 	}
 
 	async reload(): Promise<void> {
 		await this.writeQueue;
 		const globalLoad = SettingsManager.tryLoadFromStorage(this.storage, "global");
 		if (!globalLoad.error) {
-			this.globalSettings = globalLoad.settings;
+			this.globalSettings = removeModelSettings(globalLoad.settings);
 			this.globalSettingsLoadError = null;
 		} else {
 			this.globalSettingsLoadError = globalLoad.error;
 			this.recordError("global", globalLoad.error);
 		}
 
+		const modelLoad = SettingsManager.tryLoadFromStorage(this.storage, "model");
+		if (!modelLoad.error) {
+			this.modelSettings = extractModelSettings(modelLoad.settings);
+			this.modelSettingsLoadError = null;
+		} else {
+			this.modelSettingsLoadError = modelLoad.error;
+			this.recordError("model", modelLoad.error);
+		}
+
 		this.modifiedFields.clear();
 		this.modifiedNestedFields.clear();
+		this.modifiedModelFields.clear();
 		this.modifiedProjectFields.clear();
 		this.modifiedProjectNestedFields.clear();
 
 		const projectLoad = SettingsManager.tryLoadFromStorage(this.storage, "project", this.projectTrusted);
 		if (!projectLoad.error) {
-			this.projectSettings = projectLoad.settings;
+			this.projectSettings = removeModelSettings(projectLoad.settings);
 			this.projectSettingsLoadError = null;
 		} else {
 			this.projectSettingsLoadError = projectLoad.error;
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings();
 	}
 
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
 		this.settings = deepMergeSettings(this.settings, overrides);
+	}
+
+	private updateSettings(): void {
+		this.settings = deepMergeSettings(
+			deepMergeSettings(this.globalSettings, this.projectSettings),
+			this.modelSettings,
+		);
 	}
 
 	/** Mark a global field as modified during this session */
@@ -646,6 +724,10 @@ export class SettingsManager {
 			}
 			this.modifiedNestedFields.get(field)!.add(nestedKey);
 		}
+	}
+
+	private markModelModified(field: keyof ModelSettings): void {
+		this.modifiedModelFields.add(field);
 	}
 
 	/** Mark a project field as modified during this session */
@@ -673,6 +755,10 @@ export class SettingsManager {
 		if (scope === "global") {
 			this.modifiedFields.clear();
 			this.modifiedNestedFields.clear();
+			return;
+		}
+		if (scope === "model") {
+			this.modifiedModelFields.clear();
 			return;
 		}
 
@@ -734,7 +820,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -749,10 +835,24 @@ export class SettingsManager {
 		});
 	}
 
+	private saveModelSettings(): void {
+		this.updateSettings();
+
+		if (this.modelSettingsLoadError) {
+			return;
+		}
+
+		const snapshotModelSettings = structuredClone(this.modelSettings);
+		const modifiedFields = new Set<keyof Settings>(this.modifiedModelFields);
+		this.enqueueWrite("model", () => {
+			this.persistScopedSettings("model", snapshotModelSettings, modifiedFields, new Map());
+		});
+	}
+
 	private saveProjectSettings(settings: Settings): void {
 		this.assertProjectTrustedForWrite();
-		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.projectSettings = removeModelSettings(structuredClone(settings));
+		this.updateSettings();
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -808,23 +908,23 @@ export class SettingsManager {
 	}
 
 	setDefaultProvider(provider: string): void {
-		this.globalSettings.defaultProvider = provider;
-		this.markModified("defaultProvider");
-		this.save();
+		this.modelSettings.defaultProvider = provider;
+		this.markModelModified("defaultProvider");
+		this.saveModelSettings();
 	}
 
 	setDefaultModel(modelId: string): void {
-		this.globalSettings.defaultModel = modelId;
-		this.markModified("defaultModel");
-		this.save();
+		this.modelSettings.defaultModel = modelId;
+		this.markModelModified("defaultModel");
+		this.saveModelSettings();
 	}
 
 	setDefaultModelAndProvider(provider: string, modelId: string): void {
-		this.globalSettings.defaultProvider = provider;
-		this.globalSettings.defaultModel = modelId;
-		this.markModified("defaultProvider");
-		this.markModified("defaultModel");
-		this.save();
+		this.modelSettings.defaultProvider = provider;
+		this.modelSettings.defaultModel = modelId;
+		this.markModelModified("defaultProvider");
+		this.markModelModified("defaultModel");
+		this.saveModelSettings();
 	}
 
 	getSteeringMode(): "all" | "one-at-a-time" {
@@ -869,9 +969,9 @@ export class SettingsManager {
 	}
 
 	setDefaultThinkingLevel(level: ThinkingLevel): void {
-		this.globalSettings.defaultThinkingLevel = level;
-		this.markModified("defaultThinkingLevel");
-		this.save();
+		this.modelSettings.defaultThinkingLevel = level;
+		this.markModelModified("defaultThinkingLevel");
+		this.saveModelSettings();
 	}
 
 	getModelThinkingLevel(provider: string, modelId: string): ThinkingLevel | undefined {
@@ -883,22 +983,22 @@ export class SettingsManager {
 	}
 
 	setModelThinkingLevel(provider: string, modelId: string, level: ThinkingLevel): void {
-		if (!this.globalSettings.modelThinkingLevels) {
-			this.globalSettings.modelThinkingLevels = {};
+		if (!this.modelSettings.modelThinkingLevels) {
+			this.modelSettings.modelThinkingLevels = {};
 		}
-		this.globalSettings.modelThinkingLevels[`${provider}/${modelId}`] = level;
-		this.markModified("modelThinkingLevels");
-		this.save();
+		this.modelSettings.modelThinkingLevels[`${provider}/${modelId}`] = level;
+		this.markModelModified("modelThinkingLevels");
+		this.saveModelSettings();
 	}
 
 	removeModelThinkingLevel(provider: string, modelId: string): void {
-		if (!this.globalSettings.modelThinkingLevels) return;
-		delete this.globalSettings.modelThinkingLevels[`${provider}/${modelId}`];
-		if (Object.keys(this.globalSettings.modelThinkingLevels).length === 0) {
-			delete this.globalSettings.modelThinkingLevels;
+		if (!this.modelSettings.modelThinkingLevels) return;
+		delete this.modelSettings.modelThinkingLevels[`${provider}/${modelId}`];
+		if (Object.keys(this.modelSettings.modelThinkingLevels).length === 0) {
+			delete this.modelSettings.modelThinkingLevels;
 		}
-		this.markModified("modelThinkingLevels");
-		this.save();
+		this.markModelModified("modelThinkingLevels");
+		this.saveModelSettings();
 	}
 
 	getTransport(): TransportSetting {
@@ -1019,16 +1119,15 @@ export class SettingsManager {
 		this.save();
 	}
 
-	/** Read from global settings only because warming costs money. */
 	getCacheWarmingMode(): CacheWarmingMode {
-		const mode = this.globalSettings.cacheWarming;
+		const mode = this.modelSettings.cacheWarming;
 		return mode !== undefined && CACHE_WARMING_MODES.includes(mode) ? mode : "streaming";
 	}
 
 	setCacheWarmingMode(mode: CacheWarmingMode): void {
-		this.globalSettings.cacheWarming = mode;
-		this.markModified("cacheWarming");
-		this.save();
+		this.modelSettings.cacheWarming = mode;
+		this.markModelModified("cacheWarming");
+		this.saveModelSettings();
 	}
 
 	getProviderRetrySettings(): { timeoutMs?: number; maxRetries?: number; maxRetryDelayMs: number } {
@@ -1064,15 +1163,15 @@ export class SettingsManager {
 	}
 
 	setHideThinkingBlock(hide: boolean): void {
-		this.globalSettings.hideThinkingBlock = hide;
-		this.markModified("hideThinkingBlock");
-		this.save();
+		this.modelSettings.hideThinkingBlock = hide;
+		this.markModelModified("hideThinkingBlock");
+		this.saveModelSettings();
 	}
 
 	setShowCacheMissNotices(show: boolean): void {
-		this.globalSettings.showCacheMissNotices = show;
-		this.markModified("showCacheMissNotices");
-		this.save();
+		this.modelSettings.showCacheMissNotices = show;
+		this.markModelModified("showCacheMissNotices");
+		this.saveModelSettings();
 	}
 
 	getShellPath(): string | undefined {
@@ -1438,9 +1537,9 @@ export class SettingsManager {
 	}
 
 	setEnabledModels(patterns: string[] | undefined): void {
-		this.globalSettings.enabledModels = patterns;
-		this.markModified("enabledModels");
-		this.save();
+		this.modelSettings.enabledModels = patterns;
+		this.markModelModified("enabledModels");
+		this.saveModelSettings();
 	}
 
 	getDoubleEscapeAction(): "fork" | "tree" | "none" {

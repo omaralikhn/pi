@@ -32,15 +32,16 @@ describe("issue #8337 UTF-8 BOM parsing", () => {
 		mkdirSync(join(projectDir, ".pi"), { recursive: true });
 		mkdirSync(agentDir, { recursive: true });
 		const globalSettingsPath = join(agentDir, "settings.json");
-		writeFileSync(globalSettingsPath, `\uFEFF${JSON.stringify({ defaultModel: "global-model" })}`);
+		writeFileSync(globalSettingsPath, `\uFEFF${JSON.stringify({ theme: "dark" })}`);
 		writeFileSync(
-			join(projectDir, ".pi", "settings.json"),
-			`\uFEFF${JSON.stringify({ defaultProvider: "project-provider" })}`,
+			join(agentDir, "model-settings.json"),
+			`\uFEFF${JSON.stringify({ defaultProvider: "openai", defaultModel: "global-model" })}`,
 		);
+		writeFileSync(join(projectDir, ".pi", "settings.json"), `\uFEFF${JSON.stringify({ theme: "project" })}`);
 
 		const settings = SettingsManager.create(projectDir, agentDir);
 		expect(settings.getDefaultModel()).toBe("global-model");
-		expect(settings.getDefaultProvider()).toBe("project-provider");
+		expect(settings.getDefaultProvider()).toBe("openai");
 
 		settings.setTheme("dark");
 		await settings.flush();

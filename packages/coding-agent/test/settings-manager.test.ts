@@ -27,34 +27,23 @@ describe("SettingsManager", () => {
 
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
-			// Create initial settings file
-			const settingsPath = join(agentDir, "settings.json");
-			writeFileSync(
-				settingsPath,
-				JSON.stringify({
-					theme: "dark",
-					defaultModel: "claude-sonnet",
-				}),
-			);
+			const modelSettingsPath = join(agentDir, "model-settings.json");
+			writeFileSync(modelSettingsPath, JSON.stringify({ defaultModel: "claude-sonnet" }));
 
-			// Create SettingsManager (simulates pi starting up)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// Simulate user editing settings.json externally to add enabledModels
-			const currentSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			const currentSettings = JSON.parse(readFileSync(modelSettingsPath, "utf-8"));
 			currentSettings.enabledModels = ["claude-opus-4-5", "gpt-5.2-codex"];
-			writeFileSync(settingsPath, JSON.stringify(currentSettings, null, 2));
+			writeFileSync(modelSettingsPath, JSON.stringify(currentSettings, null, 2));
 
-			// User changes thinking level via Shift+Tab
 			manager.setDefaultThinkingLevel("high");
 			await manager.flush();
 
-			// Verify enabledModels is preserved
-			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-			expect(savedSettings.enabledModels).toEqual(["claude-opus-4-5", "gpt-5.2-codex"]);
-			expect(savedSettings.defaultThinkingLevel).toBe("high");
-			expect(savedSettings.theme).toBe("dark");
-			expect(savedSettings.defaultModel).toBe("claude-sonnet");
+			expect(JSON.parse(readFileSync(modelSettingsPath, "utf-8"))).toEqual({
+				defaultModel: "claude-sonnet",
+				enabledModels: ["claude-opus-4-5", "gpt-5.2-codex"],
+				defaultThinkingLevel: "high",
+			});
 		});
 
 		it("should preserve custom settings when changing theme", async () => {
@@ -86,28 +75,108 @@ describe("SettingsManager", () => {
 		});
 
 		it("should let in-memory changes override file changes for same key", async () => {
-			const settingsPath = join(agentDir, "settings.json");
+			const modelSettingsPath = join(agentDir, "model-settings.json");
+			writeFileSync(modelSettingsPath, JSON.stringify({ defaultThinkingLevel: "medium" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			writeFileSync(modelSettingsPath, JSON.stringify({ defaultThinkingLevel: "low" }));
+			manager.setDefaultThinkingLevel("high");
+			await manager.flush();
+
+			expect(JSON.parse(readFileSync(modelSettingsPath, "utf-8"))).toEqual({ defaultThinkingLevel: "high" });
+		});
+	});
+
+	describe("model settings", () => {
+		it("loads model and thinking preferences only from model-settings.json", () => {
 			writeFileSync(
-				settingsPath,
+				join(agentDir, "settings.json"),
+				JSON.stringify({ theme: "dark", defaultProvider: "legacy", defaultModel: "legacy-model" }),
+			);
+			writeFileSync(
+				join(agentDir, "model-settings.json"),
 				JSON.stringify({
-					theme: "dark",
+					defaultProvider: "openai",
+					defaultModel: "gpt-5.6-terra",
+					defaultThinkingLevel: "high",
+					modelThinkingLevels: { "openai/gpt-5.6-terra": "xhigh" },
+					thinkingBudgets: { medium: 16000 },
+					enabledModels: ["openai/gpt-5.6-terra"],
+					hideThinkingBlock: true,
+					showCacheMissNotices: true,
+					cacheWarming: "idle",
 				}),
+			);
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ defaultProvider: "project", defaultThinkingLevel: "low" }),
 			);
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// User externally sets thinking level to "low"
-			const currentSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-			currentSettings.defaultThinkingLevel = "low";
-			writeFileSync(settingsPath, JSON.stringify(currentSettings, null, 2));
+			expect(manager.getSettings()).toEqual({
+				theme: "dark",
+				defaultProvider: "openai",
+				defaultModel: "gpt-5.6-terra",
+				defaultThinkingLevel: "high",
+				modelThinkingLevels: { "openai/gpt-5.6-terra": "xhigh" },
+				thinkingBudgets: { medium: 16000 },
+				enabledModels: ["openai/gpt-5.6-terra"],
+				hideThinkingBlock: true,
+				showCacheMissNotices: true,
+				cacheWarming: "idle",
+			});
+		});
 
-			// But then changes it via UI to "high"
+		it("creates model-settings.json without changing general settings", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			const modelSettingsPath = join(agentDir, "model-settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(existsSync(modelSettingsPath)).toBe(false);
+			manager.setDefaultModelAndProvider("openai", "gpt-5.6-terra");
+			await manager.flush();
+
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toEqual({ theme: "dark" });
+			expect(JSON.parse(readFileSync(modelSettingsPath, "utf-8"))).toEqual({
+				defaultProvider: "openai",
+				defaultModel: "gpt-5.6-terra",
+			});
+		});
+
+		it("preserves externally edited model preferences during an interactive update", async () => {
+			const modelSettingsPath = join(agentDir, "model-settings.json");
+			writeFileSync(modelSettingsPath, JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.6-terra" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			writeFileSync(
+				modelSettingsPath,
+				JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.6-terra", enabledModels: ["openai/*"] }),
+			);
 			manager.setDefaultThinkingLevel("high");
 			await manager.flush();
 
-			// In-memory change should win
-			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-			expect(savedSettings.defaultThinkingLevel).toBe("high");
+			expect(JSON.parse(readFileSync(modelSettingsPath, "utf-8"))).toEqual({
+				defaultProvider: "openai",
+				defaultModel: "gpt-5.6-terra",
+				enabledModels: ["openai/*"],
+				defaultThinkingLevel: "high",
+			});
+		});
+
+		it("keeps loaded model preferences when reload finds invalid JSON", async () => {
+			const modelSettingsPath = join(agentDir, "model-settings.json");
+			writeFileSync(modelSettingsPath, JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-5.6-terra" }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			writeFileSync(modelSettingsPath, "{ invalid json");
+
+			await manager.reload();
+
+			expect(manager.getSettings()).toEqual({ defaultProvider: "openai", defaultModel: "gpt-5.6-terra" });
+			expect(manager.drainErrors()).toMatchObject([{ scope: "model", path: modelSettingsPath }]);
 		});
 	});
 
@@ -191,9 +260,9 @@ describe("SettingsManager", () => {
 				JSON.stringify({
 					theme: "light",
 					extensions: ["/after.ts"],
-					defaultModel: "claude-sonnet",
 				}),
 			);
+			writeFileSync(join(agentDir, "model-settings.json"), JSON.stringify({ defaultModel: "claude-sonnet" }));
 
 			await manager.reload();
 
@@ -417,10 +486,10 @@ describe("SettingsManager", () => {
 			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ cacheWarming: "idle" }));
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("streaming");
 
-			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ cacheWarming: "idle" }));
+			writeFileSync(join(agentDir, "model-settings.json"), JSON.stringify({ cacheWarming: "idle" }));
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("idle");
 
-			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ cacheWarming: "bogus" }));
+			writeFileSync(join(agentDir, "model-settings.json"), JSON.stringify({ cacheWarming: "bogus" }));
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("streaming");
 		});
 
@@ -430,7 +499,9 @@ describe("SettingsManager", () => {
 			await manager.flush();
 
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("off");
-			expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"))).toEqual({ cacheWarming: "off" });
+			expect(JSON.parse(readFileSync(join(agentDir, "model-settings.json"), "utf8"))).toEqual({
+				cacheWarming: "off",
+			});
 		});
 	});
 

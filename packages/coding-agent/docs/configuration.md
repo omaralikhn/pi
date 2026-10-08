@@ -10,7 +10,8 @@ The agent directory is shown as `<agent-dir>` below. Set its location with the `
 
 | Path | Responsibility |
 |---|---|
-| `<agent-dir>/settings.json` | User-level [settings](settings.md), including preferences, defaults, resource paths, and Pi package declarations. |
+| `<agent-dir>/settings.json` | User-level [settings](settings.md), including general preferences, resource paths, and Pi package declarations. |
+| `<agent-dir>/model-settings.json` | User-level [model and thinking preferences](settings.md#model-cycling). Pi creates this file after an interactive model preference change. |
 | `<agent-dir>/keybindings.json` | Custom terminal UI and application [keybindings](keybindings.md). |
 | `<agent-dir>/mcp.json` | [MCP servers](mcp.md) available in every project. |
 | `<agent-dir>/models.json` | [Compatible endpoints, models, and model overrides](models.md#configure-a-compatible-endpoint). |
