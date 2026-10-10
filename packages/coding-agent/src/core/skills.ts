@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import ignore from "ignore";
+import { homedir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { parseFrontmatter } from "../utils/frontmatter.ts";
@@ -373,13 +374,23 @@ export function formatSkillsForPrompt(skills: Skill[], fileReadTool: "read" | "b
 		lines.push("  <skill>");
 		lines.push(`    <name>${escapeXml(skill.name)}</name>`);
 		lines.push(`    <description>${escapeXml(skill.description)}</description>`);
-		lines.push(`    <location>${escapeXml(skill.filePath)}</location>`);
+		lines.push(`    <location>${escapeXml(formatSkillPathForPrompt(skill.filePath))}</location>`);
 		lines.push("  </skill>");
 	}
 
 	lines.push("</available_skills>");
 
 	return lines.join("\n");
+}
+
+function formatSkillPathForPrompt(filePath: string): string {
+	const homePath = resolve(homedir());
+	const relativePath = relative(homePath, resolve(filePath));
+	const isInHomeDirectory =
+		relativePath === "" ||
+		(!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !relativePath.startsWith(sep));
+
+	return isInHomeDirectory ? (relativePath ? `~/${toPosixPath(relativePath)}` : "~") : filePath;
 }
 
 function escapeXml(str: string): string {
