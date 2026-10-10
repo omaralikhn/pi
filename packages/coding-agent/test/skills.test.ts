@@ -247,6 +247,33 @@ describe("skills", () => {
 			expect(result).toContain("<location>/path/to/skill/SKILL.md</location>");
 		});
 
+		it("should shorten skill paths under the home directory", () => {
+			const skills: Skill[] = [
+				createTestSkill({
+					name: "test-skill",
+					description: "A test skill.",
+					filePath: join(homedir(), ".pi/agent/skills/test-skill/SKILL.md"),
+					baseDir: join(homedir(), ".pi/agent/skills/test-skill"),
+				}),
+			];
+
+			expect(formatSkillsForPrompt(skills)).toContain("<location>~/.pi/agent/skills/test-skill/SKILL.md</location>");
+		});
+
+		it("should preserve skill paths outside the home directory", () => {
+			const siblingHomePath = `${homedir()}-backup/test-skill/SKILL.md`;
+			const skills: Skill[] = [
+				createTestSkill({
+					name: "test-skill",
+					description: "A test skill.",
+					filePath: siblingHomePath,
+					baseDir: `${homedir()}-backup/test-skill`,
+				}),
+			];
+
+			expect(formatSkillsForPrompt(skills)).toContain(`<location>${siblingHomePath}</location>`);
+		});
+
 		it("should include intro text before XML", () => {
 			const skills: Skill[] = [
 				createTestSkill({
