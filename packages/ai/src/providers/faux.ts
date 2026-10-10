@@ -509,6 +509,13 @@ export function createFauxCore(options: RegisterFauxProviderOptions) {
 
 		queueMicrotask(async () => {
 			try {
+				const payload = {
+					messages: context.messages,
+					tools: context.messages.flatMap((message) =>
+						message.role === "system" ? (message.toolsAdded ?? []) : [],
+					),
+				};
+				await streamOptions?.onPayload?.(payload, requestModel);
 				await streamOptions?.onResponse?.({ status: 200, headers: {} }, requestModel);
 				if (!step) {
 					let message = createErrorMessage(

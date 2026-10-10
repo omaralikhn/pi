@@ -46,6 +46,53 @@ describe("faux provider", () => {
 		expect(registration.state.callCount).toBe(1);
 	});
 
+	it("calls onPayload with the normalized messages and tool declarations", async () => {
+		const registration = registerFauxProvider();
+		registrations.push(registration);
+		registration.setResponses([fauxAssistantMessage("done")]);
+		const tool = {
+			name: "echo",
+			description: "Echo text.",
+			parameters: Type.Object({ text: Type.String() }),
+		};
+		let payload: unknown;
+
+		await complete(
+			registration.getModel(),
+			{ messages: [{ role: "user", content: "hi", timestamp: 1 }], tools: [tool] },
+			{
+				onPayload: (value) => {
+					payload = value;
+				},
+			},
+		);
+
+		expect(payload).toEqual({
+			messages: [
+				{
+					role: "system",
+					content: "",
+					toolsAdded: [
+						{
+							name: "echo",
+							description: "Echo text.",
+							parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+						},
+					],
+					timestamp: expect.any(Number),
+				},
+				{ role: "user", content: "hi", timestamp: 1 },
+			],
+			tools: [
+				{
+					name: "echo",
+					description: "Echo text.",
+					parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+				},
+			],
+		});
+	});
+
 	it("supports helper blocks for text, thinking, and tool calls", async () => {
 		const registration = registerFauxProvider();
 		registrations.push(registration);
