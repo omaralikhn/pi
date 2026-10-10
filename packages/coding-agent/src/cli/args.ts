@@ -45,6 +45,7 @@ export interface Args {
 	useTheme?: string;
 	noThemes?: boolean;
 	noContextFiles?: boolean;
+	context?: boolean;
 	listModels?: string | true;
 	offline?: boolean;
 	tuiMode?: TuiMode;
@@ -206,6 +207,9 @@ export function parseArgs(args: string[]): Args {
 			result.noThemes = true;
 		} else if (arg === "--no-context-files" || arg === "-nc") {
 			result.noContextFiles = true;
+		} else if (arg === "--context") {
+			result.context = true;
+			result.noSession = true;
 		} else if (arg === "--list-models") {
 			// Check if next arg is a search pattern (not a flag or file arg)
 			if (i + 1 < args.length && !args[i + 1].startsWith("-") && !args[i + 1].startsWith("@")) {
@@ -286,7 +290,8 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
   ${APP_NAME} auth <command>            Print credentials or check provider readiness
   ${APP_NAME} mcp <command>             Check MCP servers, sign in to or out of OAuth servers
-  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp
+  ${APP_NAME} context [options]         Capture the initial provider payload without sending it
+  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp/context
 
 ${chalk.bold("Options:")}
   --provider <name>              Provider to search for --model (requires --model)
@@ -325,6 +330,7 @@ ${chalk.bold("Options:")}
   --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading
   --export <file>                Export session file to HTML and exit
   --list-models [search]         List available models (with optional fuzzy search)
+  --context                      Capture the initial provider payload without sending it
   --verbose                      Force verbose startup (overrides quietStartup setting)
   --tui-mode <mode>              TUI mode: fullscreen (default) or regular
   --approve, -a                  Trust project-local files for this run

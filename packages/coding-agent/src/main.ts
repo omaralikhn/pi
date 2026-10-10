@@ -49,6 +49,7 @@ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/mod
 import { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
+import { captureProviderContext, formatProviderContextReport } from "./core/provider-context-report.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
 import {
 	formatMissingSessionCwdPrompt,
@@ -571,6 +572,10 @@ export interface MainOptions {
 }
 
 export async function main(args: string[], options?: MainOptions) {
+	if (args[0] === "context") {
+		args = [...args.slice(1), "--context"];
+	}
+
 	resetTimings();
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
@@ -926,6 +931,16 @@ export async function main(args: string[], options?: MainOptions) {
 	if (appMode !== "interactive" && !session.model) {
 		console.error(chalk.red(formatNoModelsAvailableMessage()));
 		process.exit(1);
+	}
+
+	if (parsed.context) {
+		try {
+			const report = await captureProviderContext(session);
+			console.log(formatProviderContextReport(report, parsed.mode === "json"));
+		} finally {
+			session.dispose();
+		}
+		return;
 	}
 
 	const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);

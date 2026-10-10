@@ -353,6 +353,12 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("--context flag", () => {
+		test("captures context without creating a session", () => {
+			expect(parseArgs(["--context"])).toMatchObject({ context: true, noSession: true });
+		});
+	});
+
 	describe("--no-context-files flag", () => {
 		test("parses --no-context-files flag", () => {
 			const result = parseArgs(["--no-context-files"]);
