@@ -99,8 +99,10 @@ Assistant messages name the model that produced them. Newer messages also record
 Emitted when the user switches models mid-session. The latest entry is the selected model, which may be a [virtual model](virtual-models.md); assistant messages then name the physical model that answered.
 
 ```json
-{"type":"model_change","id":"d4e5f6g7","parentId":"c3d4e5f6","timestamp":"2024-12-03T14:05:00.000Z","provider":"openai","modelId":"gpt-4o"}
+{"type":"model_change","id":"d4e5f6g7","parentId":"c3d4e5f6","timestamp":"2024-12-03T14:05:00.000Z","provider":"openai","modelId":"gpt-4o","loginName":"work"}
 ```
+
+`loginName` is optional. When present, it identifies the named API-key login selected with the model. Older entries omit it and retain ordinary provider authentication behavior.
 
 ### ThinkingLevelChangeEntry
 

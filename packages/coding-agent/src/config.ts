@@ -586,6 +586,11 @@ export function getAuthPath(): string {
 	return join(getAgentDir(), "auth.json");
 }
 
+/** Get path to named provider login configuration. */
+export function getProviderLoginsPath(): string {
+	return join(getAgentDir(), "provider-logins.json");
+}
+
 /** Get path to settings.json */
 export function getSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");

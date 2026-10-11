@@ -207,8 +207,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// If session has data, try to restore model from it
 	if (!model && hasExistingSession && sessionModel) {
 		const restoredModel = modelRuntime.getModel(sessionModel.provider, sessionModel.modelId);
-		if (restoredModel && modelRuntime.hasConfiguredAuth(restoredModel.provider)) {
-			model = restoredModel;
+		try {
+			if (sessionModel.loginName) {
+				await modelRuntime.activateNamedLogin(sessionModel.provider, sessionModel.loginName);
+			}
+			if (restoredModel && modelRuntime.hasConfiguredAuth(restoredModel.provider)) {
+				model = restoredModel;
+			}
+		} catch {
+			model = undefined;
 		}
 		if (!model) {
 			modelFallbackMessage = `Could not restore model ${sessionModel.provider}/${sessionModel.modelId}`;
@@ -435,7 +442,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	} else {
 		// Save initial model and thinking level for new sessions so they can be restored on resume
 		if (model) {
-			sessionManager.appendModelChange(model.provider, model.id);
+			sessionManager.appendModelChange(model.provider, model.id, modelRuntime.getActiveNamedLogin(model.provider));
 		}
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
 	}

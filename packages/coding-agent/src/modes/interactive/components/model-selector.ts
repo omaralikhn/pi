@@ -16,10 +16,14 @@ import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyDisplayText, keyHint } from "./keybinding-hints.ts";
 
-interface ModelItem {
+export interface ModelLoginSelection {
+	model: Model<any>;
+	loginName?: string;
+}
+
+interface ModelItem extends ModelLoginSelection {
 	provider: string;
 	id: string;
-	model: Model<any>;
 }
 
 interface ScopedModelItem {
@@ -57,8 +61,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private selectedIndex: number = 0;
 	private currentModel?: Model<any>;
 	private modelRuntime: ModelRuntime;
-	private onSelectCallback: (model: Model<any>) => void;
-	private onSelectAsDefaultCallback?: (model: Model<any>) => void;
+	private onSelectCallback: (selection: ModelLoginSelection) => void;
+	private onSelectAsDefaultCallback?: (selection: ModelLoginSelection) => void;
 	private onCancelCallback: () => void;
 	private errorMessage?: string;
 	private refreshStatusMessage = "Refreshing model catalogs…";
@@ -78,10 +82,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		currentModel: Model<any> | undefined,
 		modelRuntime: ModelRuntime,
 		scopedModels: ReadonlyArray<ScopedModelItem>,
-		onSelect: (model: Model<any>) => void,
+		onSelect: (selection: ModelLoginSelection) => void,
 		onCancel: () => void,
 		initialSearchInput?: string,
-		onSelectAsDefault?: (model: Model<any>) => void,
+		onSelectAsDefault?: (selection: ModelLoginSelection) => void,
 		defaultModel?: DefaultModelReference,
 	) {
 		super();
@@ -120,7 +124,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		this.searchInput.onSubmit = () => {
 			// Enter on search input selects the first filtered item
 			if (this.filteredModels[this.selectedIndex]) {
-				this.handleSelect(this.filteredModels[this.selectedIndex].model);
+				this.handleSelect(this.filteredModels[this.selectedIndex]);
 			}
 		};
 		this.addChild(this.searchInput);
@@ -159,11 +163,18 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	}
 
 	private loadModelsFromSnapshot(): void {
-		const models = this.modelRuntime.getAvailableSnapshot().map((model: Model<any>) => ({
+		const ordinaryModels = this.modelRuntime.getAvailableSnapshot().map((model: Model<any>) => ({
 			provider: model.provider,
 			id: model.id,
 			model,
 		}));
+		const namedModels = this.modelRuntime.getModels().flatMap((model) =>
+			this.modelRuntime
+				.getNamedLogins(model.provider)
+				.filter((login) => login.available)
+				.map((login) => ({ provider: model.provider, id: model.id, model, loginName: login.name })),
+		);
+		const models = [...ordinaryModels, ...namedModels];
 		this.allModels = this.sortModels(models);
 		this.scopedModels = this.scopedModels.map((scoped) => {
 			const refreshed = this.modelRuntime.getModel(scoped.model.provider, scoped.model.id);
@@ -280,7 +291,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		if (query) {
 			const filtered = fuzzyFilter(this.activeModels, query, (item) => {
 				const defaultText = this.isDefaultModel(item.model) ? " default" : "";
-				return `${getModelSelectorSearchText({ id: item.id, provider: item.provider, name: item.model.name })}${defaultText}`;
+				return `${getModelSelectorSearchText({ id: item.id, provider: item.provider, name: item.model.name })} ${item.loginName ?? ""}${defaultText}`;
 			});
 			if (this.isDefaultSearch(query)) {
 				const defaultItems = this.activeModels.filter((item) => this.isDefaultModel(item.model));
@@ -326,7 +337,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			const currentMarker = isCurrent ? theme.fg("accent", "✓ ") : "  ";
 			const modelText = isSelected ? theme.fg("accent", item.id) : item.id;
 			const providerBadge = theme.fg("muted", `[${item.provider}]`);
-			const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${defaultBadge}`;
+			const loginLabel = item.loginName ? `${item.provider} ${item.loginName} / ` : "";
+			const line = `${cursor}${currentMarker}${loginLabel}${modelText} ${providerBadge}${defaultBadge}`;
 
 			this.listContainer.addChild(new Text(line, 0, 0));
 		}
@@ -387,7 +399,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		else if (kb.matches(keyData, "tui.select.confirm")) {
 			const selectedModel = this.filteredModels[this.selectedIndex];
 			if (selectedModel) {
-				this.handleSelect(selectedModel.model);
+				this.handleSelect(selectedModel);
 			}
 		}
 		// Escape or Ctrl+C
@@ -400,7 +412,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			const selectedModel = this.filteredModels[this.selectedIndex];
 			if (selectedModel) {
 				this.dispose();
-				this.onSelectAsDefaultCallback(selectedModel.model);
+				this.onSelectAsDefaultCallback(selectedModel);
 			}
 		}
 		// Pass everything else to search input
@@ -410,9 +422,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		}
 	}
 
-	private handleSelect(model: Model<any>): void {
+	private handleSelect(selection: ModelLoginSelection): void {
 		this.dispose();
-		this.onSelectCallback(model);
+		this.onSelectCallback(selection);
 	}
 
 	getSearchInput(): Input {

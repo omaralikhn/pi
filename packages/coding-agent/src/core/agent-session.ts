@@ -312,6 +312,8 @@ export interface PromptOptions {
 export interface ModelMutationOptions {
 	/** Persist the new value to global defaults. Defaults to session-only. */
 	persist?: boolean;
+	/** Named API-key login selected with the model. */
+	loginName?: string;
 }
 
 /** Result from cycleModel() */
@@ -2428,6 +2430,7 @@ export class AgentSession {
 	 * @throws Error if no auth is configured for the model
 	 */
 	async setModel(model: Model<any>, options: ModelMutationOptions = {}): Promise<void> {
+		if (options.loginName) await this._modelRuntime.activateNamedLogin(model.provider, options.loginName);
 		if (!(await this._modelRuntime.checkAuth(model.provider))) {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
@@ -2435,7 +2438,7 @@ export class AgentSession {
 		const previousModel = this.model;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(model);
 		this.agent.state.model = model;
-		this.sessionManager.appendModelChange(model.provider, model.id);
+		this.sessionManager.appendModelChange(model.provider, model.id, options.loginName);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
 			this._addPersistedDefaultToNonEmptyScope(model);
@@ -2447,6 +2450,13 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 
 		await this._emitModelSelect(model, previousModel, "set");
+	}
+
+	async activateNamedLogin(providerId: string, loginName: string): Promise<void> {
+		await this._modelRuntime.activateNamedLogin(providerId, loginName);
+		if (this.model?.provider === providerId) {
+			this.sessionManager.appendModelChange(providerId, this.model.id, loginName);
+		}
 	}
 
 	private _addPersistedDefaultToNonEmptyScope(model: Model<any>): void {

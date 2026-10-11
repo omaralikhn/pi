@@ -5275,9 +5275,9 @@ export class InteractiveMode {
 
 	private showModelSelector(initialSearchInput?: string): void {
 		this.showSelector((done) => {
-			const selectModel = async (model: Model<any>, persist: boolean) => {
+			const selectModel = async (model: Model<any>, persist: boolean, loginName?: string) => {
 				try {
-					await this.session.setModel(model, { persist });
+					await this.session.setModel(model, { persist, loginName });
 					this.updateAvailableProviderCount();
 					this.footer.invalidate();
 					this.updateEditorBorderColor();
@@ -5296,13 +5296,13 @@ export class InteractiveMode {
 				this.session.model,
 				this.session.modelRuntime,
 				this.session.scopedModels,
-				(model) => selectModel(model, false),
+				(selection) => selectModel(selection.model, false, selection.loginName),
 				() => {
 					done();
 					this.ui.requestRender();
 				},
 				initialSearchInput,
-				(model) => selectModel(model, true),
+				(selection) => selectModel(selection.model, true, selection.loginName),
 				defaultProvider && defaultModel ? { provider: defaultProvider, id: defaultModel } : undefined,
 			);
 			return { component: selector, focus: selector, dispose: () => selector.dispose() };
@@ -5783,6 +5783,18 @@ export class InteractiveMode {
 	}
 
 	private async handleLoginCommand(providerRef?: string): Promise<void> {
+		const direct = providerRef?.split(/\s+/u);
+		if (direct?.length === 2) {
+			const [providerId, loginName] = direct;
+			try {
+				await this.session.activateNamedLogin(providerId!, loginName!);
+				this.footer.invalidate();
+				this.showStatus(`Named login: ${providerId}/${loginName}`);
+			} catch (error) {
+				this.showError(error instanceof Error ? error.message : String(error));
+			}
+			return;
+		}
 		if (!providerRef) {
 			this.showLoginAuthTypeSelector();
 			return;

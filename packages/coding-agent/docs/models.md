@@ -22,6 +22,8 @@ You can instead provide an API key through the provider's environment variable. 
 
 When several credential sources are configured, Pi uses a runtime `--api-key` first, then a stored `auth.json` credential, an `apiKey` from `models.json`, and finally the provider's environment variables or ambient cloud credentials. Provider extensions can define their own authentication behavior.
 
+Named API-key logins are stored in `provider-logins.json` beside `auth.json`. Each login stores an environment-variable name, never an API-key value. An active named login overrides every ordinary credential source for that provider, including `--api-key`, and Pi resolves its environment variable before every request. Use `/login <provider> <login>` to activate an existing named login. The variable must exist in the process environment that starts Pi.
+
 Keep `auth.json` and any credential commands private. Project settings and extensions can execute inside the Pi process after you trust a project. Review [Security](security.md) before loading configuration from an untrusted directory.
 
 ## Select a model

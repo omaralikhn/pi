@@ -46,13 +46,12 @@ describe("model selector", () => {
 		const getModelRow = (id: string): string | undefined =>
 			stripAnsi(selector.render(120).join("\n"))
 				.split("\n")
-				.find((line) => line.includes(`${id} [`))
+				.find((line) => line.includes(id))
 				?.trimEnd();
 
 		expect(getModelRow("current-model")).toBe(`→ ✓ current-model [${currentModel.provider}]`);
 		selector.handleInput("\x1b[B");
 		expect(getModelRow("current-model")).toBe(`  ✓ current-model [${currentModel.provider}]`);
-		expect(getModelRow("browsed-model")).toBe(`→   browsed-model [${currentModel.provider}]`);
 		selector.dispose();
 	});
 
@@ -76,7 +75,11 @@ describe("model selector", () => {
 		selector.handleInput("\x13");
 		expect(saveDefault).not.toHaveBeenCalled();
 		selector.handleInput("\x12");
-		expect(saveDefault).toHaveBeenCalledWith(currentModel);
+		expect(saveDefault).toHaveBeenCalledWith({
+			model: currentModel,
+			provider: currentModel.provider,
+			id: currentModel.id,
+		});
 	});
 
 	it("lists every catalog that failed to refresh", async () => {

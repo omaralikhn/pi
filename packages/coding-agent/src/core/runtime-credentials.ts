@@ -1,12 +1,15 @@
 import type { AuthOperationOptions, Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
+import type { ProviderLoginStore } from "./provider-login-store.ts";
 
 /** Async credential store overlay for non-persistent runtime API keys. */
 export class RuntimeCredentials implements CredentialStore {
 	private readonly store: CredentialStore;
+	private readonly providerLogins: ProviderLoginStore | undefined;
 	private readonly overrides = new Map<string, string>();
 
-	constructor(store: CredentialStore) {
+	constructor(store: CredentialStore, providerLogins?: ProviderLoginStore) {
 		this.store = store;
+		this.providerLogins = providerLogins;
 	}
 
 	setRuntimeApiKey(providerId: string, apiKey: string): void {
@@ -23,6 +26,8 @@ export class RuntimeCredentials implements CredentialStore {
 
 	async read(providerId: string, options?: AuthOperationOptions): Promise<Credential | undefined> {
 		options?.signal?.throwIfAborted();
+		const namedLogin = this.providerLogins?.resolveActive(providerId);
+		if (namedLogin) return { type: "api_key", key: namedLogin.apiKey };
 		const override = this.overrides.get(providerId);
 		return override ? { type: "api_key", key: override } : this.store.read(providerId, options);
 	}

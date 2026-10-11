@@ -128,11 +128,11 @@ export function findLatestResponse(messages: readonly AgentMessage[]): Assistant
 export function getBranchSelection(
 	branch: readonly SessionEntry[],
 	getModel: (provider: string, modelId: string) => Model<Api> | undefined,
-): { provider: string; modelId: string } | undefined {
+): { provider: string; modelId: string; loginName?: string } | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
 		if (entry.type === "model_change") {
-			return { provider: entry.provider, modelId: entry.modelId };
+			return { provider: entry.provider, modelId: entry.modelId, loginName: entry.loginName };
 		}
 		if (entry.type === "message" && entry.message.role === "assistant" && !isVirtualModel(entry.message)) {
 			const response = { provider: entry.message.provider, modelId: entry.message.model };
@@ -147,10 +147,12 @@ export function getBranchSelection(
 function findLastModelChange(
 	branch: readonly SessionEntry[],
 	before: number,
-): { provider: string; modelId: string } | undefined {
+): { provider: string; modelId: string; loginName?: string } | undefined {
 	for (let i = before - 1; i >= 0; i--) {
 		const entry = branch[i];
-		if (entry.type === "model_change") return { provider: entry.provider, modelId: entry.modelId };
+		if (entry.type === "model_change") {
+			return { provider: entry.provider, modelId: entry.modelId, loginName: entry.loginName };
+		}
 	}
 	return undefined;
 }
