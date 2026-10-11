@@ -64,6 +64,8 @@ export class FooterComponent implements Component {
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
 	private sessionStats?: SessionStats;
+	private namedLoginProvider?: string;
+	private namedLogin?: string;
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -72,18 +74,17 @@ export class FooterComponent implements Component {
 
 	setSession(session: AgentSession): void {
 		this.session = session;
+		this.invalidate();
 	}
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
 	}
 
-	/**
-	 * No-op: git branch caching now handled by provider.
-	 * Kept for compatibility with existing call sites in interactive-mode.
-	 */
+	/** Kept for compatibility with existing call sites in interactive-mode. */
 	invalidate(): void {
-		// No-op: git branch is cached/invalidated by provider
+		this.namedLoginProvider = undefined;
+		this.namedLogin = undefined;
 	}
 
 	/**
@@ -218,6 +219,11 @@ export class FooterComponent implements Component {
 
 		// Add model name on the right side, plus thinking level if model supports it
 		const modelName = state.model?.id || "no-model";
+		const modelProvider = state.model?.provider;
+		if (this.namedLoginProvider !== modelProvider) {
+			this.namedLoginProvider = modelProvider;
+			this.namedLogin = modelProvider ? this.session.modelRuntime.getActiveNamedLogin(modelProvider) : undefined;
+		}
 
 		let statsLeftWidth = visibleWidth(statsLeft);
 
@@ -231,7 +237,7 @@ export class FooterComponent implements Component {
 		const minPadding = 2;
 
 		// Add thinking level indicator if model supports reasoning
-		let rightSideWithoutProvider = modelName;
+		let rightSideWithoutProvider = this.namedLogin ? `${modelName} • ${this.namedLogin}` : modelName;
 		if (state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
 			rightSideWithoutProvider =
