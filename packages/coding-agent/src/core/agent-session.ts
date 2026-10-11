@@ -2430,8 +2430,11 @@ export class AgentSession {
 	 * @throws Error if no auth is configured for the model
 	 */
 	async setModel(model: Model<any>, options: ModelMutationOptions = {}): Promise<void> {
+		const activeLoginName = options.loginName ? undefined : this._modelRuntime.getActiveNamedLogin(model.provider);
 		if (options.loginName) await this._modelRuntime.activateNamedLogin(model.provider, options.loginName);
+		else if (activeLoginName) await this._modelRuntime.deactivateNamedLogin(model.provider);
 		if (!(await this._modelRuntime.checkAuth(model.provider))) {
+			if (activeLoginName) await this._modelRuntime.activateNamedLogin(model.provider, activeLoginName);
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 

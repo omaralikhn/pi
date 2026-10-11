@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { ModelSelectorComponent } from "../src/modes/interactive/components/model-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { findRpcModelChoice, getRpcModelChoices } from "../src/modes/rpc/rpc-mode.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
 
@@ -85,6 +86,26 @@ describe("model selector", () => {
 			`    ${currentModel.provider} work / current-model [${currentModel.provider}]`,
 		]);
 		selector.dispose();
+	});
+
+	it("lists and resolves named RPC model choices independently", async () => {
+		harness = await createHarness({
+			models: [{ id: "current-model", name: "Current Model", reasoning: true }],
+		});
+		const model = harness.getModel("current-model")!;
+		vi.spyOn(harness.session.modelRuntime, "getNamedLogins").mockReturnValue([
+			{ name: "personal", env: "TEST_PERSONAL_KEY", available: true, active: true },
+			{ name: "unavailable", env: "TEST_UNAVAILABLE_KEY", available: false, active: false },
+		]);
+
+		expect(getRpcModelChoices(harness.session.modelRuntime)).toEqual(
+			expect.arrayContaining([{ ...model }, { ...model, loginName: "personal" }]),
+		);
+		expect(findRpcModelChoice(harness.session.modelRuntime, model.provider, model.id, "personal")).toEqual({
+			...model,
+			loginName: "personal",
+		});
+		expect(findRpcModelChoice(harness.session.modelRuntime, model.provider, model.id, "unavailable")).toBeUndefined();
 	});
 
 	it("uses the configured save binding", async () => {
