@@ -25,6 +25,7 @@ function createSession(options: {
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
 	usingSubscription?: boolean;
+	namedLogin?: string;
 	routedModel?: { model: { id: string }; thinkingLevel?: string };
 }): AgentSession {
 	const usage = options.usage;
@@ -85,6 +86,7 @@ function createSession(options: {
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
 		routedModel: options.routedModel,
 		modelRuntime: {
+			getActiveNamedLogin: () => options.namedLogin,
 			isUsingSubscription: () => options.usingSubscription ?? false,
 		},
 	};
@@ -155,6 +157,13 @@ describe("FooterComponent width handling", () => {
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 		}
+	});
+
+	it("shows the active named login beside the selected model", () => {
+		const session = createSession({ sessionName: "", namedLogin: "personal" });
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		expect(stripAnsi(footer.render(40)[1]!)).toBe("12.3%/200k (auto)  test-model • personal");
 	});
 
 	it("shows the physical model a virtual model routed to", () => {

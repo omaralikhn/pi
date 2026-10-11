@@ -24,6 +24,7 @@ export interface ModelLoginSelection {
 interface ModelItem extends ModelLoginSelection {
 	provider: string;
 	id: string;
+	activeLoginName?: string;
 }
 
 interface ScopedModelItem {
@@ -163,16 +164,30 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	}
 
 	private loadModelsFromSnapshot(): void {
+		const namedLogins = new Map<string, ReturnType<ModelRuntime["getNamedLogins"]>>();
+		for (const model of this.modelRuntime.getModels()) {
+			if (!namedLogins.has(model.provider)) {
+				namedLogins.set(model.provider, this.modelRuntime.getNamedLogins(model.provider));
+			}
+		}
+		const getActiveLoginName = (providerId: string): string | undefined =>
+			namedLogins.get(providerId)?.find((login) => login.active)?.name;
 		const ordinaryModels = this.modelRuntime.getAvailableSnapshot().map((model: Model<any>) => ({
 			provider: model.provider,
 			id: model.id,
 			model,
+			activeLoginName: getActiveLoginName(model.provider),
 		}));
 		const namedModels = this.modelRuntime.getModels().flatMap((model) =>
-			this.modelRuntime
-				.getNamedLogins(model.provider)
+			(namedLogins.get(model.provider) ?? [])
 				.filter((login) => login.available)
-				.map((login) => ({ provider: model.provider, id: model.id, model, loginName: login.name })),
+				.map((login) => ({
+					provider: model.provider,
+					id: model.id,
+					model,
+					loginName: login.name,
+					activeLoginName: getActiveLoginName(model.provider),
+				})),
 		);
 		const models = [...ordinaryModels, ...namedModels];
 		this.allModels = this.sortModels(models);
@@ -184,10 +199,11 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			provider: scoped.model.provider,
 			id: scoped.model.id,
 			model: scoped.model,
+			activeLoginName: getActiveLoginName(scoped.model.provider),
 		}));
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
 		this.filteredModels = this.activeModels;
-		const currentIndex = this.filteredModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
+		const currentIndex = this.filteredModels.findIndex((item) => this.isCurrentSelection(item));
 		this.selectedIndex =
 			currentIndex >= 0 ? currentIndex : Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
 	}
@@ -243,8 +259,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		const sorted = [...models];
 		// Sort: current model first, default model second, then by provider.
 		sorted.sort((a, b) => {
-			const aIsCurrent = modelsAreEqual(this.currentModel, a.model);
-			const bIsCurrent = modelsAreEqual(this.currentModel, b.model);
+			const aIsCurrent = this.isCurrentSelection(a);
+			const bIsCurrent = this.isCurrentSelection(b);
 			if (aIsCurrent && !bIsCurrent) return -1;
 			if (!aIsCurrent && bIsCurrent) return 1;
 			const aIsDefault = this.isDefaultModel(a.model);
@@ -254,6 +270,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			return a.provider.localeCompare(b.provider);
 		});
 		return sorted;
+	}
+
+	private isCurrentSelection(item: ModelItem): boolean {
+		return modelsAreEqual(this.currentModel, item.model) && item.loginName === item.activeLoginName;
 	}
 
 	private getScopeText(): string {
@@ -279,7 +299,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		if (this.scope === scope) return;
 		this.scope = scope;
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
-		const currentIndex = this.activeModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
+		const currentIndex = this.activeModels.findIndex((item) => this.isCurrentSelection(item));
 		this.selectedIndex = currentIndex >= 0 ? currentIndex : 0;
 		this.filterModels(this.searchInput.getValue());
 		if (this.scopeText) {
@@ -329,7 +349,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			if (!item) continue;
 
 			const isSelected = i === this.selectedIndex;
-			const isCurrent = modelsAreEqual(this.currentModel, item.model);
+			const isCurrent = this.isCurrentSelection(item);
 			const isDefault = this.isDefaultModel(item.model);
 			const defaultBadge = isDefault ? theme.fg("muted", " · default") : "";
 

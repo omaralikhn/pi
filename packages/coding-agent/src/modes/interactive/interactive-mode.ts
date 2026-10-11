@@ -103,6 +103,7 @@ import {
 } from "../../core/model-resolver.ts";
 import { CredentialSynchronizationError } from "../../core/model-runtime.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
+import type { ProviderLogin } from "../../core/provider-login-store.ts";
 import { RADIUS_MCP_URL, RADIUS_PROVIDER_ID } from "../../core/radius.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
@@ -5822,9 +5823,95 @@ export class InteractiveMode {
 		if (providerOption.authType === "oauth") {
 			await this.showLoginDialog(providerOption.id, providerOption.name, onBack);
 		} else if (providerOption.method?.login) {
-			await this.showApiKeyLoginDialog(providerOption.id, providerOption.name, onBack);
+			this.showApiKeyLoginSelector(providerOption, onBack);
 		} else {
 			this.showAmbientAuthDialog(providerOption, onBack);
+		}
+	}
+
+	private showApiKeyLoginSelector(providerOption: AuthSelectorProvider, onBack?: () => void): void {
+		let logins: readonly ProviderLogin[];
+		try {
+			logins = this.session.modelRuntime.getNamedLogins(providerOption.id);
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		const addLoginLabel = "Add named API-key login";
+		const ordinaryLoginLabel = "Set up ordinary API key";
+		const loginLabels = logins.map((login) => {
+			const active = login.active ? " · active" : "";
+			const unavailable = login.available ? "" : " · unavailable";
+			return `${login.name} (${login.env})${active}${unavailable}`;
+		});
+		const options = [...loginLabels, addLoginLabel, ordinaryLoginLabel];
+		this.showSelector((done) => {
+			const selector = new ExtensionSelectorComponent(
+				`Select API-key login for ${providerOption.name}:`,
+				options,
+				(option) => {
+					done();
+					if (option === addLoginLabel) {
+						void this.showNamedLoginDialog(providerOption, onBack);
+						return;
+					}
+					if (option === ordinaryLoginLabel) {
+						void this.showApiKeyLoginDialog(providerOption.id, providerOption.name, onBack);
+						return;
+					}
+					const index = loginLabels.indexOf(option);
+					const login = logins[index];
+					if (!login) return;
+					void this.session
+						.activateNamedLogin(providerOption.id, login.name)
+						.then(() => {
+							this.footer.invalidate();
+							this.showStatus(`Named login: ${providerOption.id}/${login.name}`);
+						})
+						.catch((error: unknown) => this.showError(error instanceof Error ? error.message : String(error)));
+				},
+				() => {
+					done();
+					onBack?.();
+				},
+			);
+			return { component: selector, focus: selector };
+		});
+	}
+
+	private async showNamedLoginDialog(providerOption: AuthSelectorProvider, onBack?: () => void): Promise<void> {
+		const dialog = new LoginDialogComponent(
+			this.ui,
+			providerOption.id,
+			() => {},
+			providerOption.name,
+			`Add named API-key login to ${providerOption.name}`,
+		);
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+		try {
+			const loginName = await dialog.showPrompt("Named login name", "work");
+			const environmentVariable = await dialog.showPrompt(
+				"API-key environment variable name",
+				"OPENAI_API_KEY_WORK",
+			);
+			await this.session.modelRuntime.createNamedLogin(providerOption.id, loginName, environmentVariable);
+			restoreEditor();
+			this.footer.invalidate();
+			this.showStatus(`Named login: ${providerOption.id}/${loginName}`);
+		} catch (error) {
+			restoreEditor();
+			const message = error instanceof Error ? error.message : String(error);
+			if (message === "Login cancelled") onBack?.();
+			else this.showError(message);
 		}
 	}
 

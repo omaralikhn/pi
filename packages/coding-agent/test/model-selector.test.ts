@@ -55,6 +55,38 @@ describe("model selector", () => {
 		selector.dispose();
 	});
 
+	it("marks only the active named login for the current model", async () => {
+		harness = await createHarness({
+			models: [{ id: "current-model", name: "Current Model", reasoning: true }],
+		});
+		const currentModel = harness.getModel("current-model")!;
+		vi.spyOn(harness.session.modelRuntime, "getNamedLogins").mockReturnValue([
+			{ name: "personal", env: "TEST_PERSONAL_KEY", available: true, active: true },
+			{ name: "work", env: "TEST_WORK_KEY", available: true, active: false },
+		]);
+		const selector = new ModelSelectorComponent(
+			createFakeTui(),
+			currentModel,
+			harness.session.modelRuntime,
+			[],
+			() => {},
+			() => {},
+			"current-model",
+		);
+
+		const modelRows = stripAnsi(selector.render(120).join("\n"))
+			.split("\n")
+			.filter((line) => line.includes(`current-model [${currentModel.provider}]`))
+			.map((line) => line.trimEnd());
+
+		expect(modelRows).toEqual([
+			`→ ✓ ${currentModel.provider} personal / current-model [${currentModel.provider}]`,
+			`    current-model [${currentModel.provider}]`,
+			`    ${currentModel.provider} work / current-model [${currentModel.provider}]`,
+		]);
+		selector.dispose();
+	});
+
 	it("uses the configured save binding", async () => {
 		setKeybindings(new KeybindingsManager({ "app.models.save": "ctrl+r" }));
 		harness = await createHarness();
