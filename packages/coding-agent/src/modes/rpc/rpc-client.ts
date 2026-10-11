@@ -45,6 +45,7 @@ export interface ModelInfo {
 	id: string;
 	contextWindow: number;
 	reasoning: boolean;
+	loginName?: string;
 }
 
 export type RpcEventListener = (event: JsonAgentSessionEvent) => void;
@@ -254,10 +255,15 @@ export class RpcClient {
 	}
 
 	/**
-	 * Set model by provider and ID.
+	 * Set model by provider, ID, and optional named login.
 	 */
-	async setModel(provider: string, modelId: string): Promise<{ provider: string; id: string }> {
-		const response = await this.send({ type: "set_model", provider, modelId });
+	async setModel(provider: string, modelId: string, loginName?: string): Promise<ModelInfo> {
+		const response = await this.send({
+			type: "set_model",
+			provider,
+			modelId,
+			...(loginName === undefined ? {} : { loginName }),
+		});
 		return this.getData(response);
 	}
 

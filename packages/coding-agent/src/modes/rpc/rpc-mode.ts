@@ -19,6 +19,7 @@ import type {
 	ExtensionWidgetOptions,
 	WorkingIndicatorOptions,
 } from "../../core/extensions/index.ts";
+import type { ModelRuntime } from "../../core/model-runtime.ts";
 import {
 	flushRawStdout,
 	takeOverStdout,
@@ -33,6 +34,7 @@ import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
+	RpcModelChoice,
 	RpcResponse,
 	RpcSessionState,
 	RpcSlashCommand,
@@ -43,9 +45,32 @@ export type {
 	RpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
+	RpcModelChoice,
 	RpcResponse,
 	RpcSessionState,
 } from "./rpc-types.ts";
+
+export function getRpcModelChoices(modelRuntime: ModelRuntime): RpcModelChoice[] {
+	const ordinaryModels = modelRuntime.getAvailableSnapshot().map((model) => ({ ...model }));
+	const namedModels = modelRuntime.getModels().flatMap((model) =>
+		modelRuntime
+			.getNamedLogins(model.provider)
+			.filter((login) => login.available)
+			.map((login) => ({ ...model, loginName: login.name })),
+	);
+	return [...ordinaryModels, ...namedModels];
+}
+
+export function findRpcModelChoice(
+	modelRuntime: ModelRuntime,
+	provider: string,
+	modelId: string,
+	loginName: string | undefined,
+): RpcModelChoice | undefined {
+	return getRpcModelChoices(modelRuntime).find(
+		(choice) => choice.provider === provider && choice.id === modelId && choice.loginName === loginName,
+	);
+}
 
 /**
  * Run in RPC mode.
@@ -448,6 +473,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			case "get_state": {
 				const state: RpcSessionState = {
 					model: session.model,
+					loginName: session.model ? session.modelRuntime.getActiveNamedLogin(session.model.provider) : undefined,
 					thinkingLevel: session.thinkingLevel,
 					isStreaming: session.isStreaming,
 					isCompacting: session.isCompacting,
@@ -468,13 +494,17 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "set_model": {
-				const models = session.modelRuntime.getAvailableSnapshot();
-				const model = models.find((m) => m.provider === command.provider && m.id === command.modelId);
-				if (!model) {
+				const choice = findRpcModelChoice(
+					session.modelRuntime,
+					command.provider,
+					command.modelId,
+					command.loginName,
+				);
+				if (!choice) {
 					return error(id, "set_model", `Model not found: ${command.provider}/${command.modelId}`);
 				}
-				await session.setModel(model);
-				return success(id, "set_model", model);
+				await session.setModel(choice, { loginName: choice.loginName });
+				return success(id, "set_model", choice);
 			}
 
 			case "cycle_model": {
@@ -486,8 +516,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "get_available_models": {
-				const models = session.modelRuntime.getAvailableSnapshot();
-				return success(id, "get_available_models", { models });
+				return success(id, "get_available_models", { models: getRpcModelChoices(session.modelRuntime) });
 			}
 
 			// =================================================================

@@ -13,6 +13,8 @@ import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 
+export type RpcModelChoice = Model<any> & { loginName?: string };
+
 // ============================================================================
 // RPC Commands (stdin)
 // ============================================================================
@@ -30,7 +32,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_state" }
 
 	// Model
-	| { id?: string; type: "set_model"; provider: string; modelId: string }
+	| { id?: string; type: "set_model"; provider: string; modelId: string; loginName?: string }
 	| { id?: string; type: "cycle_model" }
 	| { id?: string; type: "get_available_models" }
 
@@ -95,6 +97,7 @@ export interface RpcSlashCommand {
 
 export interface RpcSessionState {
 	model?: Model<any>;
+	loginName?: string;
 	thinkingLevel: ThinkingLevel;
 	isStreaming: boolean;
 	isCompacting: boolean;
@@ -143,7 +146,7 @@ export type RpcResponse =
 			type: "response";
 			command: "set_model";
 			success: true;
-			data: Model<any>;
+			data: RpcModelChoice;
 	  }
 	| {
 			id?: string;
@@ -157,7 +160,7 @@ export type RpcResponse =
 			type: "response";
 			command: "get_available_models";
 			success: true;
-			data: { models: Model<any>[] };
+			data: { models: RpcModelChoice[] };
 	  }
 
 	// Thinking

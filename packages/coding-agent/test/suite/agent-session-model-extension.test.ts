@@ -8,7 +8,7 @@ import {
 	type Usage,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
 
@@ -51,6 +51,24 @@ describe("AgentSession model and extension characterization", () => {
 		).toEqual([`${nextModel.provider}/${nextModel.id}`]);
 		expect(harness.settingsManager.getDefaultProvider()).toBeUndefined();
 		expect(harness.settingsManager.getDefaultModel()).toBeUndefined();
+	});
+
+	it("deactivates the named login before selecting the ordinary model", async () => {
+		const harness = await createHarness({ models: [{ id: "faux-1", name: "One", reasoning: true }] });
+		harnesses.push(harness);
+		const model = harness.getModel("faux-1")!;
+		vi.spyOn(harness.session.modelRuntime, "getActiveNamedLogin").mockReturnValue("personal");
+		const deactivateNamedLogin = vi.spyOn(harness.session.modelRuntime, "deactivateNamedLogin").mockResolvedValue();
+
+		await harness.session.setModel(model);
+
+		expect(deactivateNamedLogin).toHaveBeenCalledWith(model.provider);
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "model_change")
+				.map((entry) => ({ provider: entry.provider, modelId: entry.modelId, loginName: entry.loginName })),
+		).toEqual([{ provider: "faux", modelId: "faux-1", loginName: undefined }]);
 	});
 
 	it("only persists model and thinking defaults when requested", async () => {
