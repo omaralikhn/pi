@@ -5,6 +5,7 @@ import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { addUsageToTotals, createUsageTotals, type UsageTotals } from "../../../core/usage-totals.ts";
+import { formatModelPricing } from "../../../utils/model-pricing.ts";
 import { theme } from "../theme/theme.ts";
 
 /**
@@ -249,6 +250,9 @@ export class FooterComponent implements Component {
 			const level = routed.thinkingLevel ? ` • ${routed.thinkingLevel}` : "";
 			rightSideWithoutProvider += ` → ${routed.model.id}${level}`;
 		}
+
+		const pricingModel = routed?.model ?? state.model;
+		if (pricingModel) rightSideWithoutProvider += ` • ${formatModelPricing(pricingModel)}`;
 
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room
 		let rightSide = rightSideWithoutProvider;

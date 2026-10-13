@@ -10,6 +10,7 @@ import {
 	type TUI,
 } from "@earendil-works/pi-tui";
 import type { ModelRuntime } from "../../../core/model-runtime.ts";
+import { formatModelPricing } from "../../../utils/model-pricing.ts";
 import { refreshModelCatalogs } from "../model-catalog-refresh.ts";
 import { getModelSelectorSearchText } from "../model-search.ts";
 import { theme } from "../theme/theme.ts";
@@ -358,7 +359,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			const modelText = isSelected ? theme.fg("accent", item.id) : item.id;
 			const providerBadge = theme.fg("muted", `[${item.provider}]`);
 			const loginLabel = item.loginName ? `${item.provider} ${item.loginName} / ` : "";
-			const line = `${cursor}${currentMarker}${loginLabel}${modelText} ${providerBadge}${defaultBadge}`;
+			const line = `${cursor}${currentMarker}${loginLabel}${modelText} ${providerBadge}${defaultBadge} ${theme.fg("muted", formatModelPricing(item.model))}`;
 
 			this.listContainer.addChild(new Text(line, 0, 0));
 		}
