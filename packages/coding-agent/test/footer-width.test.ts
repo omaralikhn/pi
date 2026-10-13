@@ -71,6 +71,7 @@ function createSession(options: {
 				id: options.modelId ?? "test-model",
 				provider: options.provider ?? "test",
 				contextWindow: 200_000,
+				cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
 				reasoning: options.reasoning ?? false,
 			},
 			thinkingLevel: options.thinkingLevel ?? "off",
@@ -84,7 +85,12 @@ function createSession(options: {
 			getCwd: () => "/tmp/project",
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
-		routedModel: options.routedModel,
+		routedModel: options.routedModel
+			? {
+					...options.routedModel,
+					model: { ...options.routedModel.model, cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 } },
+				}
+			: undefined,
 		modelRuntime: {
 			getActiveNamedLogin: () => options.namedLogin,
 			isUsingSubscription: () => options.usingSubscription ?? false,
