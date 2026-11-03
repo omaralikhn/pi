@@ -75,6 +75,7 @@ export interface ModelChangeEntry extends SessionEntryBase {
 	type: "model_change";
 	provider: string;
 	modelId: string;
+	loginName?: string;
 }
 
 export interface UsageEntry extends SessionEntryBase {
@@ -1238,7 +1239,7 @@ export class SessionManager {
 	}
 
 	/** Append a model change as child of current leaf, then advance leaf. Returns entry id. */
-	appendModelChange(provider: string, modelId: string): string {
+	appendModelChange(provider: string, modelId: string, loginName?: string): string {
 		const entry: ModelChangeEntry = {
 			type: "model_change",
 			id: generateId(this.byId),
@@ -1246,6 +1247,7 @@ export class SessionManager {
 			timestamp: new Date().toISOString(),
 			provider,
 			modelId,
+			...(loginName ? { loginName } : {}),
 		};
 		this._appendEntry(entry);
 		return entry.id;

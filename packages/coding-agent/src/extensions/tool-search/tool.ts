@@ -8,6 +8,7 @@
  * like any other tool change and survives `/tree`, resume, and fork on that branch.
  */
 
+import { type Tool, toToolDeclaration } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
 import type {
 	ExtensionAPI,
@@ -250,15 +251,12 @@ export class Bm25Ranker implements ToolRanker {
 }
 
 export const toolSearchSchema = Type.Object({
-	query: Type.String({ description: "Search query for deferred tools." }),
-	limit: Type.Optional(
-		Type.Number({ description: `Maximum number of tools to return. Defaults to ${DEFAULT_TOOL_SEARCH_LIMIT}.` }),
-	),
+	query: Type.String({ description: "Exact name of the deferred tool to load." }),
 });
 
 export type ToolSearchInput = Static<typeof toolSearchSchema>;
 
-export interface ToolSearchResultTool {
+export interface ToolSearchResultTool extends Tool {
 	name: string;
 	description: string;
 }
@@ -266,6 +264,8 @@ export interface ToolSearchResultTool {
 export interface ToolSearchToolDetails {
 	/** Tools loaded by this call. */
 	loaded: string[];
+	/** Complete declarations persisted for native deferred-tool replay and session restoration. */
+	loadedTools: Tool[];
 }
 
 export interface ToolSearchToolOptions {
@@ -274,6 +274,7 @@ export interface ToolSearchToolOptions {
 	 * activates the matches. Without it, the tool finds nothing. An `ExtensionAPI` fits.
 	 */
 	tools?: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools">;
+	description?: string;
 }
 
 /** Whether `tool_search` can load a tool with this exposure. */
@@ -288,20 +289,30 @@ function isSearchable(exposure: ToolExposure): boolean {
 export function searchAndLoad(
 	tools: NonNullable<ToolSearchToolOptions["tools"]>,
 	query: string,
-	limit: number,
 ): ToolSearchResultTool[] {
 	const active = tools.getActiveTools();
-	const candidates = tools.getAllTools().filter((tool) => isSearchable(tool.exposure) && !active.includes(tool.name));
-	const matches = candidates.filter((tool) => tool.name === query.trim()).slice(0, limit);
-	if (matches.length > 0) tools.setActiveTools([...active, ...matches.map((tool) => tool.name)]);
-	return matches.map((tool) => ({ name: tool.name, description: tool.description }));
+	const match = tools
+		.getAllTools()
+		.find((tool) => isSearchable(tool.exposure) && !active.includes(tool.name) && tool.name === query.trim());
+	if (!match) return [];
+	tools.setActiveTools([...active, match.name]);
+	return [toToolDeclaration(match)];
+}
+
+export function createToolSearchDescription(tools: readonly Pick<ToolInfo, "name" | "exposure">[]): string {
+	const deferredTools = tools
+		.filter((tool) => tool.exposure === "deferred")
+		.map((tool) => tool.name)
+		.sort()
+		.map((name) => `- \`${name}\``);
+	return `# Tool discovery\n\nLoads one deferred tool by its exact name and declares it to you from the next model call, with its full schema.\n\n## Deferred tools\n\n${deferredTools.join("\n") || "- None registered."}\n\nUse this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) with the exact name of a deferred tool.`;
 }
 
 /**
  * The `tool_search` description. It does not list the searchable tools or their namespaces, so it
  * stays the same while tools are registered, for example when MCP servers connect.
  */
-export const TOOL_SEARCH_DESCRIPTION = `# Tool discovery\n\nSearches over deferred tool metadata with BM25 and exposes matching tools for the next model call.\n\nSome of the tools, such as tools of MCP servers, may not have been provided to you upfront, and you should use this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) to search for the required tools. For MCP tool discovery, always use \`${TOOL_SEARCH_TOOL_NAME}\`.`;
+export const TOOL_SEARCH_DESCRIPTION = `# Tool discovery\n\nLoads one deferred tool by its exact name and declares it to you from the next model call, with its full schema.\n\nUse this tool (\`${TOOL_SEARCH_TOOL_NAME}\`) with the exact name of a deferred tool.`;
 
 export function createToolSearchToolDefinition(
 	options: ToolSearchToolOptions = {},
@@ -309,25 +320,24 @@ export function createToolSearchToolDefinition(
 	return {
 		name: TOOL_SEARCH_TOOL_NAME,
 		label: TOOL_SEARCH_TOOL_NAME,
-		description: TOOL_SEARCH_DESCRIPTION,
+		description: options.description ?? createToolSearchDescription(options.tools?.getAllTools() ?? []),
 		promptSnippet: "Search for tools that are not loaded yet and load the matches",
 		parameters: toolSearchSchema,
 		// Searching is not something scripts need; it changes what the model sees.
 		exposure: "model-only",
 		// A query can match any tool that is not declared yet.
 		reachesTools: () => "all",
-		async execute(_toolCallId, { query, limit }) {
+		async execute(_toolCallId, { query }) {
 			if (query.trim() === "") throw new Error("query must not be empty");
-			const max = limit ?? DEFAULT_TOOL_SEARCH_LIMIT;
-			if (!Number.isInteger(max) || max <= 0) throw new Error("limit must be a positive integer");
-			const tools = options.tools ? searchAndLoad(options.tools, query, max) : [];
+			const tools = options.tools ? searchAndLoad(options.tools, query) : [];
 			const text =
 				tools.length === 0
 					? "No matching tools found."
-					: `Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"}. They are available from your next call:\n${tools
-							.map((tool) => `- ${tool.name}: ${tool.description.trim().split(/\r?\n/)[0]}`)
-							.join("\n")}`;
-			return { content: [{ type: "text", text }], details: { loaded: tools.map((tool) => tool.name) } };
+					: `Loaded ${tools[0].name}. It is available from your next call.`;
+			return {
+				content: [{ type: "text", text }],
+				details: { loaded: tools.map((tool) => tool.name), loadedTools: tools.map(toToolDeclaration) },
+			};
 		},
 	};
 }

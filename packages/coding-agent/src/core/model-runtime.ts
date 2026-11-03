@@ -25,7 +25,6 @@ import {
 	type DeferredCancelOptions,
 	type DeferredFetchOptions,
 	type DeferredHandle,
-	getOpenCodeSessionHeaders,
 	type ImageApi,
 	type ImageModel,
 	type ImagesContext,
@@ -58,10 +57,8 @@ import {
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
 import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
-import { personalizeOpenRouterCatalog } from "@earendil-works/pi-ai/providers/openrouter";
 import {
 	assertChatModel,
-	assertClassifierInputSupported,
 	assertClassifierModel,
 	assertImageModel,
 	classifierErrorResult,
@@ -82,7 +79,8 @@ import {
 	resolveConfiguredModelHeaders,
 	validateExtensionProvider,
 } from "./provider-composer.ts";
-import { withPersonalizedCatalog, withRemoteCatalog } from "./remote-catalog-provider.ts";
+import { type ProviderLogin, ProviderLoginStore } from "./provider-login-store.ts";
+import { withRemoteCatalog } from "./remote-catalog-provider.ts";
 import { RuntimeCredentials } from "./runtime-credentials.ts";
 import {
 	createVirtualModel,
@@ -114,6 +112,8 @@ export interface CreateModelRuntimeOptions {
 	modelsPath?: string | null;
 	modelsStore?: ModelsStore;
 	modelsStorePath?: string;
+	providerLogins?: ProviderLoginStore;
+	providerLoginsPath?: string;
 	/** Allow create() to refresh model catalogs over the network. Defaults to false. */
 	allowModelNetwork?: boolean;
 	/** Timeout for the create-time network model refresh. */
@@ -174,6 +174,7 @@ function mergeHeaders(
 export class ModelRuntime implements Models {
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
+	private readonly providerLogins: ProviderLoginStore;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
 	private readonly builtins = new Map<string, Provider>();
 	private readonly nativeExtensionProviders = new Map<string, Provider>();
@@ -199,6 +200,7 @@ export class ModelRuntime implements Models {
 
 	private constructor(
 		credentials: RuntimeCredentials,
+		providerLogins: ProviderLoginStore,
 		config: ModelConfig,
 		modelsPath: string | undefined,
 		modelsStore: ModelsStore,
@@ -206,6 +208,7 @@ export class ModelRuntime implements Models {
 		modelNetworkEnabled: boolean,
 	) {
 		this.credentials = credentials;
+		this.providerLogins = providerLogins;
 		this.config = config;
 		this.modelsPath = modelsPath;
 		this.modelNetworkEnabled = modelNetworkEnabled;
@@ -216,7 +219,16 @@ export class ModelRuntime implements Models {
 	}
 
 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
-		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
+		const providerLogins =
+			options.providerLogins ??
+			new ProviderLoginStore(
+				options.providerLoginsPath ??
+					(options.authPath ? join(dirname(options.authPath), "provider-logins.json") : undefined),
+			);
+		const credentials = new RuntimeCredentials(
+			options.credentials ?? DefaultAuthStorage.create(options.authPath),
+			providerLogins,
+		);
 		const modelsPath =
 			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
 		const config = await ModelConfig.load(modelsPath);
@@ -226,21 +238,16 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
-		const providers = builtinProviderCatalog.builtinProviders().map((provider) => {
-			if (provider.id === "radius") return provider;
-			// OpenRouter narrows the catalog to the models, limits and prices of the user's key.
-			if (provider.id === "openrouter") {
-				return withPersonalizedCatalog(
-					provider,
-					personalizeOpenRouterCatalog,
-					options.catalogBaseUrl,
-					builtinModelDataGeneratedAt,
-				);
-			}
-			return withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt);
-		});
+		const providers = builtinProviderCatalog
+			.builtinProviders()
+			.map((provider) =>
+				provider.id === "radius"
+					? provider
+					: withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt),
+			);
 		const runtime = new ModelRuntime(
 			credentials,
+			providerLogins,
 			config,
 			modelsPath,
 			modelsStore,
@@ -559,8 +566,11 @@ export class ModelRuntime implements Models {
 		providerOrModel: string | AnyModel,
 		overrides: ModelRuntimeAuthOverrides = {},
 	): Promise<AuthResult | undefined> {
-		if (typeof providerOrModel === "string") return this.models.getAuth(providerOrModel, overrides);
-		const resolution = await this.models.getAuth(providerOrModel, overrides);
+		const providerId = typeof providerOrModel === "string" ? providerOrModel : providerOrModel.provider;
+		const namedLogin = this.providerLogins.resolveActive(providerId);
+		const namedOverrides = namedLogin ? { ...overrides, apiKey: namedLogin.apiKey } : overrides;
+		if (typeof providerOrModel === "string") return this.models.getAuth(providerOrModel, namedOverrides);
+		const resolution = await this.models.getAuth(providerOrModel, namedOverrides);
 		if (!resolution) return undefined;
 		const configuredHeaders = resolveConfiguredModelHeaders(
 			providerOrModel,
@@ -619,6 +629,36 @@ export class ModelRuntime implements Models {
 		}
 	}
 
+	getNamedLogins(providerId: string): readonly ProviderLogin[] {
+		return this.providerLogins.list(providerId);
+	}
+
+	getActiveNamedLogin(providerId: string): string | undefined {
+		return this.providerLogins.getActiveLogin(providerId);
+	}
+
+	async createNamedLogin(providerId: string, loginName: string, env: string): Promise<void> {
+		this.requireKnownProvider(providerId);
+		await this.providerLogins.create(providerId, loginName, env);
+		await this.synchronizeCredentialState(providerId, "login", undefined, operationSignal());
+	}
+
+	async activateNamedLogin(providerId: string, loginName: string): Promise<void> {
+		this.requireKnownProvider(providerId);
+		await this.providerLogins.activate(providerId, loginName);
+		await this.synchronizeCredentialState(providerId, "login", undefined, operationSignal());
+	}
+
+	async deactivateNamedLogin(providerId: string): Promise<void> {
+		this.requireKnownProvider(providerId);
+		await this.providerLogins.deactivate(providerId);
+		await this.synchronizeCredentialState(providerId, "logout", undefined, operationSignal());
+	}
+
+	private requireKnownProvider(providerId: string): void {
+		if (!this.models.getProvider(providerId)) throw new Error(`Unknown provider: ${providerId}`);
+	}
+
 	setRuntimeApiKey(providerId: string, apiKey: string, options: AuthOperationOptions = {}): Promise<void> {
 		const signal = operationSignal(options.signal);
 		return this.enqueueCredentialOperation(providerId, signal, async () => {
@@ -645,6 +685,8 @@ export class ModelRuntime implements Models {
 	}
 
 	getProviderAuthStatus(providerId: string): AuthStatus {
+		const activeLogin = this.providerLogins.getActiveLogin(providerId);
+		if (activeLogin) return { configured: true, source: "environment", label: `named login: ${activeLogin}` };
 		if (this.credentials.hasRuntimeApiKey(providerId)) return { configured: true, source: "runtime" };
 		if (this.snapshot.storedProviders.has(providerId)) return { configured: true, source: "stored" };
 		const configured = configuredRequestAuthStatus(
@@ -678,20 +720,13 @@ export class ModelRuntime implements Models {
 
 		const { transformHeaders, ...rawProviderOptions } = options ?? {};
 		const providerOptions = rawProviderOptions as Omit<TOptions, "transformHeaders"> & ProviderRequestOptions<TModel>;
-		const requestModel: TModel = resolution.auth.baseUrl ? { ...model, baseUrl: resolution.auth.baseUrl } : model;
-		const sessionId =
-			"sessionId" in providerOptions && typeof providerOptions.sessionId === "string"
-				? providerOptions.sessionId
-				: undefined;
-		let headers = mergeHeaders(
-			mergeHeaders(getOpenCodeSessionHeaders(requestModel, sessionId), resolution.auth.headers),
-			providerOptions.headers,
-		);
+		let headers = mergeHeaders(resolution.auth.headers, providerOptions.headers);
 		if (transformHeaders) headers = await transformHeaders(headers ?? {});
 		const env =
 			resolution.env || providerOptions.env
 				? { ...(resolution.env ?? {}), ...(providerOptions.env ?? {}) }
 				: undefined;
+		const requestModel: TModel = resolution.auth.baseUrl ? { ...model, baseUrl: resolution.auth.baseUrl } : model;
 		return {
 			provider,
 			model: requestModel,
@@ -820,7 +855,6 @@ export class ModelRuntime implements Models {
 	): Promise<ClassifierResult> {
 		try {
 			assertClassifierModel(model);
-			assertClassifierInputSupported(model, context);
 			const prepared = await this.prepareRequest(model, options);
 			if (!prepared.provider.classify) {
 				throw new ModelsError("provider", `Provider ${model.provider} does not support classification`);

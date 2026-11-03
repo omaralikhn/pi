@@ -289,7 +289,7 @@ describe("AgentSession MCP integration", () => {
 	it("lets tool_search declare unnamed MCP tools when --tools names it", async () => {
 		const { harness } = await setup("deferred", undefined, { allowedToolNames: ["tool_search"] });
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("tool_search", { query: "search the docs", limit: 1 })], {
+			fauxAssistantMessage([fauxToolCall("tool_search", { query: "mcp__docs__search" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("loaded"),
@@ -640,7 +640,7 @@ return { docs, sameForAliases: aliases.every((alias) => JSON.stringify(alias) ==
 			builtInTools: ["tool_search"],
 		});
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("tool_search", { query: "search the docs", limit: 1 })], {
+			fauxAssistantMessage([fauxToolCall("tool_search", { query: "mcp__docs__search" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage([fauxToolCall("mcp__docs__search", { query: "loaded" })], { stopReason: "toolUse" }),
@@ -890,7 +890,7 @@ return [...new Set(await Promise.all(names.map(async (name) => (await describeNa
 	it("waits for servers before tool_search searches", async () => {
 		const { harness } = await setupSlow({ exposure: "deferred" }, 30);
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("tool_search", { query: "search the docs", limit: 1 })], {
+			fauxAssistantMessage([fauxToolCall("tool_search", { query: "mcp__slow__search" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage([fauxToolCall("mcp__slow__search", { query: "late" })], { stopReason: "toolUse" }),
@@ -978,7 +978,10 @@ return [...new Set(await Promise.all(names.map(async (name) => (await describeNa
 		const { harness, calls } = await setup("deferred");
 		const searchName = createMcpToolName("docs", "search");
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("tool_search", { query: "search the docs", limit: 1 })], {
+			fauxAssistantMessage([fauxToolCall("tool_search", { query: searchName })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage([fauxToolCall("tool_search", { query: searchName })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage([fauxToolCall(searchName, { query: "loaded" })], { stopReason: "toolUse" }),
@@ -990,10 +993,17 @@ return [...new Set(await Promise.all(names.map(async (name) => (await describeNa
 		const toolSearch = harness.session.agent.state.tools.find((tool) => tool.name === "tool_search");
 		expect(toolSearch?.description).toBe(createToolSearchDescription(harness.session.getAllTools()));
 
-		const search = toolResult(harness, "tool_search");
-		expect(getMessageText(search)).toBe(
-			`Loaded 1 tool. They are available from your next call:\n- ${searchName}: Search the docs.`,
+		const searches = harness.session.messages.filter(
+			(message): message is ToolResultMessage => message.role === "toolResult" && message.toolName === "tool_search",
 		);
+		expect(searches.map((search) => getMessageText(search))).toEqual([
+			`Loaded ${searchName}. It is available from your next call.`,
+			"No matching tools found.",
+		]);
+		expect(searches.map((search) => search.details)).toEqual([
+			{ loaded: [searchName], loadedTools: expect.any(Array) },
+			{ loaded: [], loadedTools: [] },
+		]);
 		// Only the loaded tool is added; earlier declarations are not repeated.
 		const loadMessages = harness.session.messages.filter(
 			(message): message is SystemMessage =>
@@ -1194,7 +1204,7 @@ describe("AgentSession MCP tools after resume and reload", () => {
 
 	async function loadDocsSearch(harness: Harness) {
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("tool_search", { query: "search the docs", limit: 1 })], {
+			fauxAssistantMessage([fauxToolCall("tool_search", { query: "mcp__docs__search" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("loaded"),

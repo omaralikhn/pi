@@ -35,6 +35,11 @@ const modelBase = {
 
 const baseTool = tool("base_tool");
 const lateTool = tool("late_tool");
+const nativeLateTool = {
+	name: "late_tool",
+	description: "late_tool tool",
+	parameters: { type: "object", properties: {} },
+};
 const dropTool = tool("drop_tool");
 
 /**
@@ -357,7 +362,7 @@ describe("transcript system messages", () => {
 			name: "GPT-5.4",
 			api: "openai-responses",
 			provider: "openai",
-			compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true, supportsToolSearch: true },
+			compat: { supportsMidConvoSystemMessages: true, supportsToolSearch: true },
 		};
 		const payload = await capturePayload<{
 			tools?: Array<{ name: string }>;
@@ -370,6 +375,63 @@ describe("transcript system messages", () => {
 		expect(
 			payload.input.find((item) => item.type === "tool_search_output")?.tools?.map((value) => value.name),
 		).toEqual(["late_tool"]);
+	});
+
+	test("replays a native deferred-tool result after its function output", async () => {
+		const model: Model<"openai-responses"> = {
+			...modelBase,
+			id: "gpt-5.4",
+			name: "GPT-5.4",
+			api: "openai-responses",
+			provider: "openai",
+			compat: { supportsToolSearch: true },
+		};
+		const payload = await capturePayload<{
+			input: Array<{ type?: string; tools?: Array<{ name: string }> }>;
+		}>(model, {
+			messages: [
+				{ role: "system", content: "base prompt", toolsAdded: [baseTool], timestamp: 0 },
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "search-1", name: "tool_search", arguments: { query: "late_tool" } }],
+					api: "openai-responses",
+					provider: "openai",
+					model: "gpt-5.4",
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: "toolUse",
+					timestamp: 1,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "search-1",
+					toolName: "tool_search",
+					content: [{ type: "text", text: "Loaded late_tool." }],
+					details: { loaded: ["late_tool"], loadedTools: [nativeLateTool] },
+					isError: false,
+					timestamp: 2,
+				},
+				{ role: "user", content: "use it", timestamp: 3 },
+			],
+		});
+
+		const functionOutputIndex = payload.input.findIndex((item) => item.type === "function_call_output");
+		const discoveryIndex = payload.input.findIndex((item) => item.type === "tool_search_call");
+		expect(functionOutputIndex).toBeGreaterThanOrEqual(0);
+		expect(discoveryIndex).toBeGreaterThan(functionOutputIndex);
+		expect(payload.input[discoveryIndex + 1]).toEqual({
+			type: "tool_search_output",
+			call_id: expect.any(String),
+			execution: "client",
+			status: "completed",
+			tools: [expect.objectContaining({ name: "late_tool", defer_loading: true })],
+		});
 	});
 
 	test("folds OpenAI updates into the leading developer message without native support", async () => {

@@ -36,7 +36,12 @@ import { shortHash } from "../utils/hash.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { ToolCallArgumentsStream } from "../utils/streaming-json.ts";
 import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.ts";
-import { resolveTranscript, resolveTranscriptTools, type TranscriptToolSupport } from "../utils/transcript.ts";
+import {
+	getNativeDeferredTools,
+	resolveTranscript,
+	resolveTranscriptTools,
+	type TranscriptToolSupport,
+} from "../utils/transcript.ts";
 import {
 	appendGrammarToolInputJsonDelta,
 	closeGrammarToolInputJson,
@@ -423,6 +428,28 @@ export function convertResponsesMessages<TApi extends Api>(
 					call_id: callId,
 					output,
 				});
+			}
+
+			const nativeDeferredTools = toolSupport === "additions" ? getNativeDeferredTools(msg) : [];
+			if (nativeDeferredTools.length > 0) {
+				const nativeCallId = `pi_tool_load_${shortHash(`${callId}:${nativeDeferredTools.map((tool) => tool.name).join(",")}`)}`;
+				messages.push({
+					type: "tool_search_call",
+					call_id: nativeCallId,
+					execution: "client",
+					status: "completed",
+					arguments: {
+						query: nativeDeferredTools.map((tool) => tool.name).join(" "),
+						limit: nativeDeferredTools.length,
+					},
+				} satisfies ResponseInputItem);
+				messages.push({
+					type: "tool_search_output",
+					call_id: nativeCallId,
+					execution: "client",
+					status: "completed",
+					tools: convertResponsesTools(nativeDeferredTools, { ...options?.toolOptions, toolSearchResult: true }),
+				} satisfies ResponseToolSearchOutputItemParam);
 			}
 		}
 		if (!isLeadingSystemMessage) msgIndex++;

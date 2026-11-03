@@ -1,7 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import type { ToolInfo, ToolNamespace } from "../src/core/extensions/types.ts";
+import type { ExtensionToolContext, ToolInfo, ToolNamespace } from "../src/core/extensions/types.ts";
 import { createCodemodeDescription } from "../src/extensions/codemode/tool.ts";
 import {
 	Bm25Ranker,
@@ -293,6 +293,55 @@ Use this tool (\`tool_search\`) with the exact name of a deferred tool.`;
 				parameters: { type: "object", properties: {} },
 			},
 		]);
+	});
+
+	it("reports the one loaded tool with replayable declarations", async () => {
+		const candidates: ToolInfo[] = [
+			{
+				name: "run_test_ts",
+				description: "Runs TypeScript tests.",
+				parameters: Type.Object({}),
+				exposure: "deferred",
+				sourceInfo: { path: "builtin:run_test_ts", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+			{
+				name: "run_test_py",
+				description: "Runs Python tests.",
+				parameters: Type.Object({}),
+				exposure: "deferred",
+				sourceInfo: { path: "builtin:run_test_py", source: "builtin", scope: "temporary", origin: "top-level" },
+			},
+		];
+		let active: string[] = [];
+		const definition = createToolSearchToolDefinition({
+			tools: {
+				getActiveTools: () => active,
+				getAllTools: () => candidates,
+				setActiveTools: (names) => {
+					active = names;
+				},
+			},
+		});
+		const context = {} as ExtensionToolContext;
+
+		expect(await definition.execute("tool-search", { query: "run_test_ts" }, undefined, undefined, context)).toEqual({
+			content: [{ type: "text", text: "Loaded run_test_ts. It is available from your next call." }],
+			details: {
+				loaded: ["run_test_ts"],
+				loadedTools: [
+					{
+						name: "run_test_ts",
+						description: "Runs TypeScript tests.",
+						parameters: { type: "object", properties: {} },
+					},
+				],
+			},
+		});
+		expect(active).toEqual(["run_test_ts"]);
+		expect(await definition.execute("tool-search", { query: "run_test_ts" }, undefined, undefined, context)).toEqual({
+			content: [{ type: "text", text: "No matching tools found." }],
+			details: { loaded: [], loadedTools: [] },
+		});
 	});
 });
 

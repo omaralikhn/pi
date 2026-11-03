@@ -58,6 +58,8 @@ const DEFAULT_COMPACTION_TOKEN_SETTINGS: Required<CompactionModelOverride> = {
 	keepRecentTokens: SETTINGS_DEFAULTS.compaction.keepRecentTokens,
 };
 
+const MODEL_SETTINGS_FIELDS = [
+	"defaultProvider",
 	"defaultModel",
 	"defaultThinkingLevel",
 	"modelThinkingLevels",
