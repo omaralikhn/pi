@@ -207,17 +207,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// If session has data, try to restore model from it
 	if (!model && hasExistingSession && sessionModel) {
 		const restoredModel = modelRuntime.getModel(sessionModel.provider, sessionModel.modelId);
+		const defaultLogin = modelRuntime.getActiveNamedLogin(sessionModel.provider);
 		try {
-			if (sessionModel.loginName) {
-				await modelRuntime.activateNamedLogin(sessionModel.provider, sessionModel.loginName);
-			}
-			if (restoredModel && modelRuntime.hasConfiguredAuth(restoredModel.provider)) {
-				model = restoredModel;
+			if (restoredModel) {
+				await modelRuntime.restoreNamedLogin(sessionModel.provider, sessionModel.loginName);
+				if (modelRuntime.hasConfiguredAuth(restoredModel.provider)) model = restoredModel;
 			}
 		} catch {
 			model = undefined;
 		}
 		if (!model) {
+			await modelRuntime.restoreNamedLogin(sessionModel.provider, defaultLogin);
 			modelFallbackMessage = `Could not restore model ${sessionModel.provider}/${sessionModel.modelId}`;
 		}
 	}

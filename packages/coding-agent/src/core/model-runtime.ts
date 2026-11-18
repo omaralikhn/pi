@@ -637,6 +637,12 @@ export class ModelRuntime implements Models {
 		return this.providerLogins.getActiveLogin(providerId);
 	}
 
+	async restoreNamedLogin(providerId: string, loginName: string | undefined): Promise<void> {
+		if (this.getActiveNamedLogin(providerId) === loginName) return;
+		this.providerLogins.setSessionLogin(providerId, loginName);
+		await this.refreshProviderAvailability(providerId, operationSignal());
+	}
+
 	async createNamedLogin(providerId: string, loginName: string, env: string): Promise<void> {
 		this.requireKnownProvider(providerId);
 		await this.providerLogins.create(providerId, loginName, env);
@@ -650,9 +656,9 @@ export class ModelRuntime implements Models {
 	}
 
 	async deactivateNamedLogin(providerId: string): Promise<void> {
-		this.requireKnownProvider(providerId);
+		const hadNamedLogin = this.getActiveNamedLogin(providerId) !== undefined;
 		await this.providerLogins.deactivate(providerId);
-		await this.synchronizeCredentialState(providerId, "logout", undefined, operationSignal());
+		if (hadNamedLogin) await this.synchronizeCredentialState(providerId, "logout", undefined, operationSignal());
 	}
 
 	private requireKnownProvider(providerId: string): void {

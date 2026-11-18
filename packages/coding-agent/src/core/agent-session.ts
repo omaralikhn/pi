@@ -607,7 +607,11 @@ export class AgentSession {
 		if (!recorded || (recorded.provider === model.provider && recorded.modelId === model.id)) return;
 		const recordedModel = getModel(recorded.provider, recorded.modelId);
 		if (!isVirtualModel(model) && !(recordedModel && isVirtualModel(recordedModel))) return;
-		this.sessionManager.appendModelChange(model.provider, model.id);
+		this.sessionManager.appendModelChange(
+			model.provider,
+			model.id,
+			this._modelRuntime.getActiveNamedLogin(model.provider),
+		);
 	}
 
 	/** The model whose limits apply to the conversation. */
@@ -2432,7 +2436,7 @@ export class AgentSession {
 	async setModel(model: Model<any>, options: ModelMutationOptions = {}): Promise<void> {
 		const activeLoginName = options.loginName ? undefined : this._modelRuntime.getActiveNamedLogin(model.provider);
 		if (options.loginName) await this._modelRuntime.activateNamedLogin(model.provider, options.loginName);
-		else if (activeLoginName) await this._modelRuntime.deactivateNamedLogin(model.provider);
+		else await this._modelRuntime.deactivateNamedLogin(model.provider);
 		if (!(await this._modelRuntime.checkAuth(model.provider))) {
 			if (activeLoginName) await this._modelRuntime.activateNamedLogin(model.provider, activeLoginName);
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
@@ -2515,7 +2519,11 @@ export class AgentSession {
 
 		// Apply model
 		this.agent.state.model = next.model;
-		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
+		this.sessionManager.appendModelChange(
+			next.model.provider,
+			next.model.id,
+			this._modelRuntime.getActiveNamedLogin(next.model.provider),
+		);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
 			this._addPersistedDefaultToNonEmptyScope(next.model);
@@ -2550,7 +2558,11 @@ export class AgentSession {
 
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(nextModel);
 		this.agent.state.model = nextModel;
-		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
+		this.sessionManager.appendModelChange(
+			nextModel.provider,
+			nextModel.id,
+			this._modelRuntime.getActiveNamedLogin(nextModel.provider),
+		);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(nextModel.provider, nextModel.id);
 			this._addPersistedDefaultToNonEmptyScope(nextModel);

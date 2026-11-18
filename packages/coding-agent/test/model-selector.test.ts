@@ -50,9 +50,9 @@ describe("model selector", () => {
 				.find((line) => line.includes(id))
 				?.trimEnd();
 
-		expect(getModelRow("current-model")).toBe(`→ ✓ current-model [${currentModel.provider}]`);
+		expect(getModelRow("current-model")).toBe("→ ✓ current-model [faux] r$0 cr$0 w$0");
 		selector.handleInput("\x1b[B");
-		expect(getModelRow("current-model")).toBe(`  ✓ current-model [${currentModel.provider}]`);
+		expect(getModelRow("current-model")).toBe("  ✓ current-model [faux] r$0 cr$0 w$0");
 		selector.dispose();
 	});
 
@@ -81,9 +81,9 @@ describe("model selector", () => {
 			.map((line) => line.trimEnd());
 
 		expect(modelRows).toEqual([
-			`→ ✓ ${currentModel.provider} personal / current-model [${currentModel.provider}]`,
-			`    current-model [${currentModel.provider}]`,
-			`    ${currentModel.provider} work / current-model [${currentModel.provider}]`,
+			"→ ✓ faux personal / current-model [faux] r$0 cr$0 w$0",
+			"    current-model [faux] r$0 cr$0 w$0",
+			"    faux work / current-model [faux] r$0 cr$0 w$0",
 		]);
 		selector.dispose();
 	});

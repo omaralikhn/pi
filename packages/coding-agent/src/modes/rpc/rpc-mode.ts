@@ -503,7 +503,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				if (!choice) {
 					return error(id, "set_model", `Model not found: ${command.provider}/${command.modelId}`);
 				}
-				await session.setModel(choice, { loginName: choice.loginName });
+				const { loginName, ...model } = choice;
+				await session.setModel(model, { loginName });
 				return success(id, "set_model", choice);
 			}
 

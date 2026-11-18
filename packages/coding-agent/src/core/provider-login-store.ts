@@ -41,12 +41,16 @@ export class ProviderLoginError extends Error {
 
 export class ProviderLoginStore {
 	private readonly path: string;
+	private readonly activeLogins = new Map<string, string>();
 	private data: ProviderLoginDocument = emptyDocument();
 	private error: Error | undefined;
 
 	constructor(path: string = getProviderLoginsPath()) {
 		this.path = normalizePath(path);
 		this.reload();
+		for (const [providerId, provider] of Object.entries(this.data.providers)) {
+			if (provider.activeLogin !== undefined) this.activeLogins.set(providerId, provider.activeLogin);
+		}
 	}
 
 	getPath(): string {
@@ -75,28 +79,26 @@ export class ProviderLoginStore {
 			name,
 			env: login.env,
 			available: getEnvironmentValue(login.env) !== undefined,
-			active: provider.activeLogin === name,
+			active: this.getActiveLogin(providerId) === name,
 		}));
 	}
 
 	getActiveLogin(providerId: string): string | undefined {
-		this.reload();
-		return this.data.providers[providerId]?.activeLogin;
+		return this.activeLogins.get(providerId);
+	}
+
+	setSessionLogin(providerId: string, loginName: string | undefined): void {
+		if (loginName === undefined) {
+			this.activeLogins.delete(providerId);
+		} else {
+			this.resolve(providerId, loginName);
+			this.activeLogins.set(providerId, loginName);
+		}
 	}
 
 	resolveActive(providerId: string): ResolvedProviderLogin | undefined {
-		this.reload();
-		const activeLogin = this.data.providers[providerId]?.activeLogin;
-		if (!activeLogin) return undefined;
-		const login = this.data.providers[providerId]?.logins[activeLogin];
-		if (!login) return undefined;
-		const apiKey = getEnvironmentValue(login.env);
-		if (!apiKey) {
-			throw new ProviderLoginError(
-				`Environment variable "${login.env}" for named login "${activeLogin}" is missing or empty.`,
-			);
-		}
-		return { name: activeLogin, apiKey };
+		const activeLogin = this.getActiveLogin(providerId);
+		return activeLogin === undefined ? undefined : this.resolve(providerId, activeLogin);
 	}
 
 	resolve(providerId: string, loginName: string): ResolvedProviderLogin {
@@ -130,6 +132,7 @@ export class ProviderLoginStore {
 				logins: { ...provider.logins, [loginName]: { env } },
 			};
 		});
+		this.activeLogins.set(providerId, loginName);
 	}
 
 	async activate(providerId: string, loginName: string): Promise<void> {
@@ -144,14 +147,19 @@ export class ProviderLoginStore {
 			assertEnvironmentValue(login.env, loginName);
 			provider.activeLogin = loginName;
 		});
+		this.activeLogins.set(providerId, loginName);
 	}
 
 	async deactivate(providerId: string): Promise<void> {
 		validateProviderId(providerId);
-		await this.mutate((document) => {
-			const provider = document.providers[providerId];
-			if (provider) delete provider.activeLogin;
-		});
+		this.reload();
+		if (this.data.providers[providerId]?.activeLogin !== undefined) {
+			await this.mutate((document) => {
+				const provider = document.providers[providerId];
+				if (provider) delete provider.activeLogin;
+			});
+		}
+		this.activeLogins.delete(providerId);
 	}
 
 	private readDocument(): ProviderLoginDocument {

@@ -138,7 +138,10 @@ export function getBranchSelection(
 			const response = { provider: entry.message.provider, modelId: entry.message.model };
 			const change = findLastModelChange(branch, i);
 			const model = change && getModel(change.provider, change.modelId);
-			return change && model && isVirtualModel(model) ? change : response;
+			if (change && model && isVirtualModel(model)) return change;
+			return change?.provider === response.provider && change.loginName !== undefined
+				? { ...response, loginName: change.loginName }
+				: response;
 		}
 	}
 	return undefined;
